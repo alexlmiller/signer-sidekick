@@ -25,6 +25,11 @@ Before approval, the scheduler rechecks enablement and deployment identity. Disa
 unapproved recipe once preparation finishes; approval already begun and approved execution may
 continue. Force Observe retains its existing signature-boundary effect.
 
+Empty preparation and typed transient read/unavailability failures before approval wait for the
+configured interval; they do not disable scheduling. Preparation retries rediscover current work.
+Approval retries retain the same recipe and expiry. Schema 45 persists preparation failure codes;
+unknown/legacy failures still require review, and upgrading never re-enables a stopped schedule.
+
 A halted, paused, expired or cancelled scheduled run latches scheduling off with its reason. The
 scheduler never resumes it or starts a replacement. Re-enablement requires explicit review and cannot discard
 a materialized/broadcast attempt or an unresolved halted/paused run. A changed deployment cannot

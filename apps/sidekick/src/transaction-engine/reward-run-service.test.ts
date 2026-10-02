@@ -7,6 +7,7 @@ import type {
   ConnectionAssessment,
   GasWalletRefusal,
   RewardRun,
+  RewardRunOperation,
 } from "@stx-labs/signer-sidekick-api-contracts";
 import { planRewardOperation } from "@stx-labs/signer-sidekick-protocol/reward-operation-plan";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -25,6 +26,7 @@ import {
   buildRewardRunRecipe,
   type RewardRunDraftFacts,
   type RewardRunDriver,
+  RewardRunError,
   RewardRunService,
   type RewardRunSigner,
 } from "./reward-run-service.js";
@@ -1002,6 +1004,196 @@ describe("reward run coordinator", () => {
     expect(service.get(queued.preparationId)).toMatchObject({ status: "awaiting-approval" });
   });
 
+  it.each([
+    "calculate-rewards",
+    "claim-rewards",
+    "claim-staker-rewards",
+    "settle-accepted-withdrawal",
+    "reclaim-failed-withdrawal",
+  ] satisfies RewardRunOperation[])("classifies an empty %s preparation without creating or signing a run", async (operation) => {
+    const { store } = await openSidekickStore(":memory:", started.toISOString());
+    stores.push(store);
+    const live = driver();
+    const service = new RewardRunService({
+      repository: store.rewardRuns,
+      signer: signer(),
+      driver: live.implementation,
+      facts: async () => ({
+        ...facts(),
+        collectRequired: false,
+        maximumCollectSats: null,
+        accounts: [],
+        eligibleAccountCount: 0,
+      }),
+      refusalChecks: async () => goodRefusal,
+      maximumFeeUstx: 1_000n,
+      now: () => started,
+    });
+    const queued = service.enqueuePreparation({
+      cycle: 141,
+      distribution: 1,
+      operations: [operation],
+    });
+    await vi.waitFor(() =>
+      expect(service.getPreparation(queued.preparationId)).toMatchObject({
+        status: "failed",
+        failureCode: "no-work",
+        runId: null,
+      }),
+    );
+    expect(store.rewardRuns.list()).toEqual([]);
+    expect(store.rewardRuns.active(wallet)).toBeNull();
+    expect(live.materialized).toEqual([]);
+    expect(live.broadcasts).toEqual([]);
+    await service.stop();
+  });
+
+  it.each([
+    [new RateLimitedError("Rate limited", 1_000), "temporarily-unavailable"],
+    [new UpstreamUnavailableError("Timeout"), "temporarily-unavailable"],
+    [new ChainAnchorError("Tip advanced", { retryable: true }), "temporarily-unavailable"],
+    [new RewardRunError("reward_run_unavailable", "Wallet disabled"), "temporarily-unavailable"],
+    [new ChainAnchorError("Conflicting anchor"), null],
+    [new UpstreamSchemaError("Invalid contract response"), null],
+    [new RewardRunError("reward_run_invalid", "Invalid recipe"), null],
+    [new Error("There is no current reward work to run"), null],
+  ])("persists typed preparation failure classification: %s", async (error, failureCode) => {
+    const { store } = await openSidekickStore(":memory:", started.toISOString());
+    stores.push(store);
+    const service = new RewardRunService({
+      repository: store.rewardRuns,
+      signer: signer(),
+      driver: driver().implementation,
+      facts: async () => {
+        throw error;
+      },
+      refusalChecks: async () => goodRefusal,
+      maximumFeeUstx: 1_000n,
+      now: () => started,
+    });
+    const queued = service.enqueuePreparation({
+      cycle: 141,
+      distribution: 1,
+      operations: ["claim-rewards"],
+    });
+    await vi.waitFor(() =>
+      expect(service.getPreparation(queued.preparationId)).toMatchObject({
+        status: "failed",
+        failureCode,
+        runId: null,
+      }),
+    );
+    expect(store.rewardRuns.list()).toEqual([]);
+    await service.stop();
+  });
+
+  it("survives stale selection after completion and collects the next distribution", async () => {
+    const { store } = await openSidekickStore(":memory:", started.toISOString());
+    stores.push(store);
+    let now = started;
+    let distribution: 1 | 2 = 1;
+    let collectRequired = true;
+    let nonce = 0n;
+    const live = driver({ nonce: () => ++nonce });
+    const service = new RewardRunService({
+      repository: store.rewardRuns,
+      signer: signer(),
+      driver: {
+        ...live.implementation,
+        reconcile: async () => {
+          collectRequired = false;
+          return { status: "confirmed", blockHeight: 9001 };
+        },
+      },
+      facts: async () => ({ ...facts(), distribution, collectRequired }),
+      refusalChecks: async () => goodRefusal,
+      maximumFeeUstx: 1_000n,
+      now: () => now,
+    });
+    const schedule = new RewardScheduleService({
+      repository: store.rewardSchedule,
+      runs: service,
+      identity: () => "testnet:manager:wallet",
+      unavailable: () => null,
+      walletBusy: () => false,
+      now: () => now,
+      // Deliberately stale: keeps offering collect even after it succeeded.
+      select: async () => ({
+        beforeCycle: null,
+        request: { cycle: 141, distribution, operations: ["claim-rewards"] },
+      }),
+    });
+    try {
+      schedule.configure({ enabled: true, intervalMinutes: 15, revision: 0 });
+      await vi.waitFor(async () => {
+        await schedule.tick();
+        await service.recover();
+        expect(schedule.status()).toMatchObject({
+          enabled: true,
+          state: "waiting",
+          runId: null,
+          preparationId: null,
+        });
+      });
+      expect(store.rewardRuns.list()).toHaveLength(1);
+      expect(live.broadcasts).toEqual(["claim-rewards"]);
+      distribution = 2;
+      collectRequired = true;
+      now = new Date(started.getTime() + 15 * 60_000);
+      await vi.waitFor(async () => {
+        await schedule.tick();
+        await service.recover();
+        expect(store.rewardRuns.list().filter((run) => run.status === "completed")).toHaveLength(2);
+      });
+      expect(live.broadcasts).toEqual(["claim-rewards", "claim-rewards"]);
+      expect(schedule.status().enabled).toBe(true);
+    } finally {
+      await schedule.stop();
+      await service.stop();
+    }
+  });
+
+  it("classifies a competing wallet lease as temporary without adopting the other run", async () => {
+    const { store } = await openSidekickStore(":memory:", started.toISOString());
+    stores.push(store);
+    const service = new RewardRunService({
+      repository: store.rewardRuns,
+      signer: signer(),
+      driver: driver().implementation,
+      facts: async () => facts(),
+      refusalChecks: async () => goodRefusal,
+      maximumFeeUstx: 1_000n,
+      now: () => started,
+    });
+    const request = {
+      cycle: 141,
+      distribution: 1 as const,
+      operations: ["claim-rewards" as const],
+    };
+    const manual = await service.prepare(request);
+    const queued = service.enqueuePreparation(request);
+    await vi.waitFor(() =>
+      expect(service.getPreparation(queued.preparationId)).toMatchObject({
+        status: "failed",
+        failureCode: "temporarily-unavailable",
+        runId: null,
+        failureReason: "The gas wallet already has an active run or sweep",
+      }),
+    );
+    expect(service.get(manual.runId).status).toBe("awaiting-approval");
+    expect(store.rewardRuns.list()).toHaveLength(1);
+    service.cancel(manual.runId);
+    const retry = service.enqueuePreparation(request);
+    expect(retry.preparationId).not.toBe(queued.preparationId);
+    await vi.waitFor(() =>
+      expect(service.getPreparation(retry.preparationId)).toMatchObject({
+        status: "ready",
+        runId: retry.preparationId,
+      }),
+    );
+    await service.stop();
+  });
+
   it("leaves an interrupted preparation recoverable across a clean restart", async () => {
     const { store } = await openSidekickStore(":memory:", started.toISOString());
     stores.push(store);
@@ -1286,6 +1478,7 @@ describe("reward run coordinator", () => {
     // Recreate the previous schema and its parent-only unresolved diagnostic.
     const legacy = new DatabaseSync(path);
     legacy.exec(`
+      ALTER TABLE reward_run_preparations DROP COLUMN failure_code;
       DROP TABLE reward_schedule_requests;
       DROP TABLE reward_schedule;
       DROP INDEX position_detail_due;

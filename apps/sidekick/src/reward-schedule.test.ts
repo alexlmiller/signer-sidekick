@@ -7,6 +7,7 @@ import type {
   RewardRunPrepareRequest,
 } from "@stx-labs/signer-sidekick-api-contracts";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { ChainAnchorError, RateLimitedError, UpstreamUnavailableError } from "./chain-clients.js";
 import { RewardScheduleService } from "./reward-schedule.js";
 import { createServer } from "./server.js";
 import { openSidekickStore, type SidekickStore } from "./storage/store.js";
@@ -153,6 +154,179 @@ describe("scheduled reward runs (engine unchanged)", () => {
     await f.schedule.tick();
     await f.schedule.tick();
     expect(f.runs.enqueuePreparation).toHaveBeenCalledTimes(2);
+  });
+
+  it.each([
+    "no-work",
+    "temporarily-unavailable",
+  ] as const)("keeps automation enabled after %s preparation and rediscovers on schedule after restart", async (failureCode) => {
+    const directory = await mkdtemp(join(tmpdir(), "schedule-retry-"));
+    directories.push(directory);
+    const path = join(directory, "sidekick.sqlite");
+    const f = await fixture(path);
+    f.configure();
+    await f.schedule.tick();
+    const preparation = f.runs.getPreparation(f.schedule.status().preparationId as string);
+    Object.assign(preparation, { status: "failed", failureCode, failureReason: "Read outcome" });
+    f.store.rewardSchedule.update({ beforeCycle: 140 });
+    await f.schedule.tick();
+    expect(f.schedule.status()).toMatchObject({
+      enabled: true,
+      revision: 1,
+      state: "waiting",
+      runId: null,
+      preparationId: null,
+      nextCheckAt: "2026-09-21T12:15:00.000Z",
+    });
+    expect(f.runs.approve).not.toHaveBeenCalled();
+    f.store.close();
+    stores.splice(stores.indexOf(f.store), 1);
+    const { store } = await openSidekickStore(path);
+    stores.push(store);
+    const restarted = new RewardScheduleService({ ...f.options, repository: store.rewardSchedule });
+    await restarted.tick();
+    expect(f.select).toHaveBeenCalledTimes(1);
+    f.advance(15 * 60_000);
+    f.select.mockResolvedValue({ request: { cycle: 144, distribution: 1 }, beforeCycle: null });
+    await restarted.tick();
+    expect(f.select).toHaveBeenLastCalledWith(null);
+    expect(f.runs.enqueuePreparation).toHaveBeenLastCalledWith(
+      expect.objectContaining({ cycle: 144 }),
+    );
+    const run = f.ready();
+    await restarted.tick();
+    expect(f.runs.approve).toHaveBeenCalledWith(run.runId, run.recipeSha256);
+  });
+
+  it.each([
+    undefined,
+    null,
+  ])("keeps unclassified/legacy preparation failures latched (%s)", async (failureCode) => {
+    const f = await fixture();
+    f.configure();
+    await f.schedule.tick();
+    const preparation = f.runs.getPreparation(f.schedule.status().preparationId as string);
+    Object.assign(preparation, {
+      status: "failed",
+      failureCode,
+      failureReason: "There is no current reward work to run",
+    });
+    await f.schedule.tick();
+    expect(f.schedule.status()).toMatchObject({
+      enabled: false,
+      state: "needs-attention",
+      nextCheckAt: null,
+    });
+    f.advance(60 * 60_000);
+    await f.schedule.tick();
+    expect(f.runs.enqueuePreparation).toHaveBeenCalledOnce();
+    expect(f.runs.approve).not.toHaveBeenCalled();
+  });
+
+  it("does not re-enable a schedule disabled while a recoverable preparation finishes", async () => {
+    const f = await fixture();
+    f.configure();
+    await f.schedule.tick();
+    f.configure(false);
+    const preparation = f.runs.getPreparation(f.schedule.status().preparationId as string);
+    Object.assign(preparation, {
+      status: "failed",
+      failureCode: "no-work",
+      failureReason: "No work",
+    });
+    await f.schedule.tick();
+    expect(f.schedule.status()).toMatchObject({ enabled: false, state: "off", nextCheckAt: null });
+    expect(f.runs.approve).not.toHaveBeenCalled();
+  });
+
+  it("waits if the gas wallet becomes unavailable between discovery and enqueue", async () => {
+    const f = await fixture();
+    f.configure();
+    f.runs.enqueuePreparation.mockImplementationOnce(() => {
+      throw new RewardRunError("reward_run_unavailable", "Wallet disabled");
+    });
+    await f.schedule.tick();
+    const preparationId = f.schedule.status().preparationId;
+    await f.schedule.tick();
+    expect(f.schedule.status()).toMatchObject({ enabled: true, state: "waiting" });
+    expect(f.runs.enqueuePreparation).toHaveBeenCalledOnce();
+    f.advance(15 * 60_000);
+    await f.schedule.tick();
+    expect(f.runs.enqueuePreparation).toHaveBeenCalledTimes(2);
+    expect(f.runs.enqueuePreparation).toHaveBeenLastCalledWith(
+      expect.objectContaining({ requestId: preparationId }),
+    );
+  });
+
+  it.each([
+    new RateLimitedError("Rate limited", 1_000),
+    new UpstreamUnavailableError("Node unavailable"),
+    new ChainAnchorError("Tip advancing", { retryable: true }),
+    new RewardRunError("reward_run_unavailable", "Execution temporarily disabled"),
+  ])("paces transient approval failures without replacing the recipe: %s", async (error) => {
+    const f = await fixture();
+    f.configure();
+    await f.schedule.tick();
+    const run = f.ready();
+    f.runs.approve.mockRejectedValueOnce(error);
+    await f.schedule.tick();
+    expect(f.schedule.status()).toMatchObject({
+      enabled: true,
+      state: "waiting",
+      runId: run.runId,
+    });
+    await f.schedule.tick();
+    expect(f.runs.approve).toHaveBeenCalledOnce();
+    f.advance(15 * 60_000);
+    await f.schedule.tick();
+    expect(f.runs.approve).toHaveBeenLastCalledWith(run.runId, run.recipeSha256);
+    expect(f.runs.approve).toHaveBeenCalledTimes(2);
+    expect(f.runs.enqueuePreparation).toHaveBeenCalledOnce();
+    expect(f.schedule.status().state).toBe("running");
+  });
+
+  it("cancels an unapproved recipe immediately when disabled during retry backoff", async () => {
+    const f = await fixture();
+    f.configure();
+    await f.schedule.tick();
+    const run = f.ready();
+    f.runs.approve.mockRejectedValueOnce(new RateLimitedError("Rate limited", 1_000));
+    await f.schedule.tick();
+    f.configure(false);
+    await f.schedule.tick();
+    expect(f.runs.cancel).toHaveBeenCalledWith(run.runId);
+    expect(f.runs.approve).toHaveBeenCalledOnce();
+  });
+
+  it.each([
+    new RewardRunError("reward_run_refused", "manager-admin"),
+    new RewardRunError("reward_run_refused", "check-unavailable without a typed transport error"),
+    new RewardRunError("reward_run_invalid", "Integrity mismatch"),
+    new RewardRunError("reward_run_expired", "Approval window elapsed"),
+    new ChainAnchorError("Conflicting anchor"),
+    new Error("Unknown approval failure"),
+  ])("does not retry unsafe or unclassified approval errors: %s", async (error) => {
+    const f = await fixture();
+    f.configure();
+    await f.schedule.tick();
+    f.ready();
+    f.runs.approve.mockRejectedValueOnce(error);
+    await f.schedule.tick();
+    expect(f.schedule.status()).toMatchObject({ enabled: false, state: "needs-attention" });
+  });
+
+  it("does not retry an approval error once the engine has accepted the run", async () => {
+    const f = await fixture();
+    f.configure();
+    await f.schedule.tick();
+    const run = f.ready();
+    f.runs.approve.mockImplementationOnce(async () => {
+      run.status = "running";
+      throw new RateLimitedError("Rate limited", 1_000);
+    });
+    await f.schedule.tick();
+    expect(f.schedule.status()).toMatchObject({ enabled: false, state: "needs-attention" });
+    expect(f.runs.enqueuePreparation).toHaveBeenCalledOnce();
   });
 
   it("coalesces overlapping passes and cancels discovery when disabled while reading", async () => {

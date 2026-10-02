@@ -99,6 +99,7 @@ const preparationRowSchema = z.object({
   started_at: z.string().nullable(),
   completed_at: z.string().nullable(),
   updated_at: z.string(),
+  failure_code: z.enum(["no-work", "temporarily-unavailable"]).nullable(),
 });
 
 const terminalRunStatuses = new Set<RewardRunStatus>(["completed", "cancelled", "expired"]);
@@ -188,7 +189,7 @@ export class RewardRunRepository {
   getPreparation(preparationId: string): RewardRunPreparation | null {
     const row = this.db
       .prepare(
-        `SELECT preparation_id, status, request_sha256, request_json, run_id, failure_reason,
+        `SELECT preparation_id, status, request_sha256, request_json, run_id, failure_reason, failure_code,
           created_at, started_at, completed_at, updated_at
          FROM reward_run_preparations WHERE preparation_id = ?`,
       )
@@ -255,15 +256,20 @@ export class RewardRunRepository {
     return this.requirePreparation(preparationId);
   }
 
-  failPreparation(preparationId: string, reason: string, now: string): RewardRunPreparation {
+  failPreparation(
+    preparationId: string,
+    reason: string,
+    now: string,
+    failureCode: RewardRunPreparation["failureCode"] = null,
+  ): RewardRunPreparation {
     const failureReason = reason.trim().slice(0, 2_000) || "Reward-run preparation failed";
     const changed = this.db
       .prepare(
         `UPDATE reward_run_preparations
-         SET status = 'failed', run_id = NULL, failure_reason = ?, completed_at = ?, updated_at = ?
+         SET status = 'failed', run_id = NULL, failure_reason = ?, completed_at = ?, updated_at = ?, failure_code = ?
          WHERE preparation_id = ? AND status = 'preparing'`,
       )
-      .run(failureReason, now, now, preparationId).changes;
+      .run(failureReason, now, now, failureCode, preparationId).changes;
     if (changed === 0) {
       throw new RewardRunRepositoryError(
         "state-conflict",
@@ -294,6 +300,7 @@ export class RewardRunRepository {
       request: JSON.parse(value.request_json),
       runId: value.run_id,
       failureReason: value.failure_reason,
+      failureCode: value.failure_code,
       createdAt: value.created_at,
       startedAt: value.started_at,
       completedAt: value.completed_at,

@@ -49,6 +49,8 @@ export const rewardRunPreparationSchema = z
     request: rewardRunPrepareRequestSchema,
     runId: z.string().uuid().nullable(),
     failureReason: z.string().min(1).nullable(),
+    /** Absent/null on older or unclassified failures: never infer retry safety from message text. */
+    failureCode: z.enum(["no-work", "temporarily-unavailable"]).nullable().optional(),
     createdAt: z.iso.datetime(),
     startedAt: z.iso.datetime().nullable(),
     completedAt: z.iso.datetime().nullable(),
