@@ -12,7 +12,8 @@
   "scripts": {
     "build": "pnpm -r --if-present build",
     "build:contracts": "pnpm --filter @stx-labs/signer-sidekick-protocol build && pnpm --filter @stx-labs/signer-sidekick-api-contracts build",
-    "check": "biome check . && pnpm typecheck && pnpm third-party:licenses && pnpm census:verify",
+    "check": "biome check . && pnpm dependencies:verify && pnpm typecheck && pnpm third-party:licenses && pnpm census:verify",
+    "dependencies:verify": "node scripts/verify-dependency-graph.mjs",
     "check:fix": "biome check --write .",
     "typecheck": "pnpm build:contracts && pnpm -r --if-present typecheck && tsc -p test/integration/regtest/tsconfig.json --noEmit",
     "test": "pnpm build:contracts && pnpm -r --if-present test && pnpm test:devnet:harness && pnpm test:observer-latency && pnpm test:census:managers",
@@ -60,6 +61,8 @@
   },
   "pnpm": {
     "overrides": {
+      "@stacks/connect@8.2.6>@reown/appkit": "1.8.24",
+      "@stacks/connect@8.2.6>@reown/appkit-universal-connector": "1.8.24",
       "fast-uri@>=3.0.0 <3.1.8": "3.1.8",
       "fast-uri@>=4.0.0 <4.1.5": "4.1.5",
       "nanoid@>=3.0.0 <3.3.18": "3.3.18",
