@@ -7,7 +7,10 @@ import {
   rewardScheduleStatusSchema,
 } from "@stx-labs/signer-sidekick-api-contracts";
 import type { RewardScheduleRepository } from "./storage/reward-schedule-repository.js";
-import type { RewardRunService } from "./transaction-engine/reward-run-service.js";
+import {
+  type RewardRunService,
+  rewardPreparationFailureCode,
+} from "./transaction-engine/reward-run-service.js";
 
 export interface RewardScheduleOptions {
   repository: RewardScheduleRepository;
@@ -151,6 +154,15 @@ export class RewardScheduleService {
       return;
     }
     if (state.request) {
+      // Poll active work promptly, but pace failed pre-approval reads at the configured interval.
+      // Disable still cancels a waiting draft immediately.
+      if (
+        state.enabled &&
+        state.state === "waiting" &&
+        state.nextCheckAt &&
+        Date.parse(state.nextCheckAt) > this.now().getTime()
+      )
+        return;
       await this.follow();
       return;
     }
@@ -206,7 +218,13 @@ export class RewardScheduleService {
         this.clear();
         return;
       }
-      preparation = this.options.runs.enqueuePreparation(request);
+      try {
+        preparation = this.options.runs.enqueuePreparation(request);
+      } catch (error) {
+        if (rewardPreparationFailureCode(error) !== "temporarily-unavailable") throw error;
+        this.wait("Reward preparation is temporarily unavailable; retrying on schedule.");
+        return;
+      }
     }
     if (preparation.preparationId !== request.requestId) {
       // Preparation deduplication may return a manual request with identical inputs. Never adopt it.
@@ -215,6 +233,21 @@ export class RewardScheduleService {
       return;
     }
     if (preparation.status === "failed") {
+      if (
+        preparation.failureCode === "no-work" ||
+        preparation.failureCode === "temporarily-unavailable"
+      ) {
+        // No recipe was approved or signed. Fresh discovery must choose the next action,
+        // not replay stale inputs (another caller may already have completed this work).
+        this.clear();
+        this.options.repository.update({ beforeCycle: null });
+        this.wait(
+          preparation.failureCode === "no-work"
+            ? "No eligible reward work remains for that action; checking again on schedule."
+            : `Reward preparation deferred: ${preparation.failureReason ?? "temporarily unavailable"}. Retrying on schedule.`,
+        );
+        return;
+      }
       this.halt(
         preparation.failureReason ?? "Reward preparation failed; review before continuing.",
       );
@@ -252,11 +285,22 @@ export class RewardScheduleService {
       }
       const unavailable = this.options.unavailable();
       if (unavailable) {
-        this.options.repository.update({ state: "waiting", detail: unavailable });
+        this.wait(unavailable);
         return;
       }
       // Calling approve is the hand-off boundary; its own asynchronous checks/execution are unchanged.
-      await this.options.runs.approve(run.runId, run.recipeSha256);
+      try {
+        await this.options.runs.approve(run.runId, run.recipeSha256);
+      } catch (error) {
+        if (
+          rewardPreparationFailureCode(error) !== "temporarily-unavailable" ||
+          this.options.runs.get(run.runId).status !== "awaiting-approval"
+        )
+          throw error;
+        // Retain the exact recipe and its original expiry. Never replace or resume a run.
+        this.wait("Could not verify reward-run approval; retrying on schedule.");
+        return;
+      }
       if (this.options.repository.get().enabled)
         this.options.repository.update({
           state: "running",

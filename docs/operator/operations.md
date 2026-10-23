@@ -192,7 +192,7 @@ check and active run link. Rewards links to that status; Activity records schedu
 
 | Status | What to do |
 | --- | --- |
-| Waiting | Read the reason: no eligible work, unavailable prerequisites, or another run/sweep. Checks continue. A waiting calculation or Bitcoin confirmation is not yet eligible work. |
+| Waiting | No eligible work, temporary read failure, unavailable prerequisites, or another run/sweep. Checks continue on the configured interval, including when another caller completes an action during preparation. A waiting calculation or Bitcoin confirmation is not yet eligible work. |
 | Preparing / running | Follow the run's progress and transaction evidence in Activity. |
 | Needs attention | Scheduling is off. Review the linked preparation/run or changed deployment identity, resolve it, then explicitly re-enable. |
 

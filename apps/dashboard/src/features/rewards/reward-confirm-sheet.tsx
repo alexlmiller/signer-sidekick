@@ -38,6 +38,7 @@ export function runLede(kind: RewardRunKind): string {
 export type ConfirmState =
   | { status: "drafting" }
   | { status: "preparing"; preparation: RewardRunPreparation }
+  | { status: "no-work" }
   | { status: "ready"; run: RewardRun; reused: boolean }
   | { status: "approving"; run: RewardRun }
   | { status: "unavailable"; reason: string }
@@ -167,44 +168,57 @@ export function RewardConfirmSheet({
             <div className="body">{state.message}</div>
           </div>
         ) : null}
-        <div className="rw-facts">
-          <span>
-            <span className="mono">{transactions.toLocaleString("en-US")} transactions</span>
-            {run ? (
-              <>
-                {" "}
-                · up to <span className="mono">{stxAmount(run.recipe.gasBudgetUstx)}</span> gas from
-                the gas wallet
-              </>
-            ) : null}
-            {execution.chip ? <> ({execution.chip.replace("Gas wallet ", "")} available)</> : null}
-          </span>
-          <span>
-            Another caller may finish some of this first — Sidekick skips what is already done.
-          </span>
-          <span>You can close this page. Progress shows on Rewards and Overview.</span>
-          {run ? (
+        {state.status === "no-work" ? (
+          <div className="callout callout-neutral" role="status">
+            <div className="body">
+              No eligible reward work remains for this action. Nothing was signed or sent. Refresh
+              Rewards to see the current state.
+            </div>
+          </div>
+        ) : (
+          <div className="rw-facts">
             <span>
-              Approve by <span className="mono">{shortUtc(run.approvalExpiresAt)}</span>; once
-              started the run stops itself after 6 hours.
+              <span className="mono">{transactions.toLocaleString("en-US")} transactions</span>
+              {run ? (
+                <>
+                  {" "}
+                  · up to <span className="mono">{stxAmount(run.recipe.gasBudgetUstx)}</span> gas
+                  from the gas wallet
+                </>
+              ) : null}
+              {execution.chip ? (
+                <> ({execution.chip.replace("Gas wallet ", "")} available)</>
+              ) : null}
             </span>
-          ) : null}
-        </div>
+            <span>
+              Another caller may finish some of this first — Sidekick skips what is already done.
+            </span>
+            <span>You can close this page. Progress shows on Rewards and Overview.</span>
+            {run ? (
+              <span>
+                Approve by <span className="mono">{shortUtc(run.approvalExpiresAt)}</span>; once
+                started the run stops itself after 6 hours.
+              </span>
+            ) : null}
+          </div>
+        )}
         <div className="rw-sheet-actions">
           <button className="btn btn-tertiary" type="button" onClick={onCancel} ref={cancelRef}>
             Close
           </button>
-          <button
-            className="btn btn-primary"
-            type="button"
-            disabled={state.status !== "ready" || !execution.available}
-            onClick={() => {
-              if (state.status === "ready") onGo(state.run);
-            }}
-          >
-            {state.status === "approving" ? "Starting…" : "Go"}
-            <ArrowRight className="rw-ico" aria-hidden="true" />
-          </button>
+          {state.status !== "no-work" ? (
+            <button
+              className="btn btn-primary"
+              type="button"
+              disabled={state.status !== "ready" || !execution.available}
+              onClick={() => {
+                if (state.status === "ready") onGo(state.run);
+              }}
+            >
+              {state.status === "approving" ? "Starting…" : "Go"}
+              <ArrowRight className="rw-ico" aria-hidden="true" />
+            </button>
+          ) : null}
         </div>
       </div>
     </div>
