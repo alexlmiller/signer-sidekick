@@ -9,7 +9,7 @@ name: Released Devnet E2E
 #  schedule:
 #    - cron: "17 8 * * 1"
 #
-# See https://github.com/stx-labs/signer-sidekick/issues/3
+# See https://github.com/alexlmiller/signer-sidekick/issues/3
 on:
   workflow_dispatch:
 

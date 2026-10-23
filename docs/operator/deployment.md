@@ -6,7 +6,7 @@ Sidekick requires Docker Compose 2.24.4 or newer, a deployed PoX-5 signer-manage
 ## Configure
 
 ```sh
-git clone --depth 1 --branch RELEASE_TAG https://github.com/stx-labs/signer-sidekick.git
+git clone --depth 1 --branch RELEASE_TAG https://github.com/alexlmiller/signer-sidekick.git
 cd signer-sidekick
 cp .env.mainnet.example .env
 chmod 600 .env
@@ -17,6 +17,7 @@ Set these values in `.env`:
 | Variable | Value |
 | --- | --- |
 | `SIDEKICK_IMAGE_TAG` | Release version without the Git tag's `v` prefix |
+| `SIDEKICK_IMAGE_REPOSITORY` | Image repository listed in the selected release notes; defaults to `ghcr.io/stx-labs/signer-sidekick` for existing releases through v2.3.0 |
 | `STACKS_NODE_RPC_URL` | Node RPC URL reachable from the container |
 | `SIDEKICK_MANAGER_PRINCIPAL` | Existing `SP_ADDRESS.contract-name` manager |
 | `SIDEKICK_AUTH_TOKEN` | Unique random operator credential (at least 24 characters) |
@@ -54,7 +55,7 @@ distribution. A custom source therefore does not disable core monitoring or impl
 operation is unavailable.
 
 If an operation you need is **Observe only** or **Not provided**, open a
-[manager compatibility issue](https://github.com/stx-labs/signer-sidekick/issues/new?title=Manager%20compatibility%3A%20).
+[manager compatibility issue](https://github.com/alexlmiller/signer-sidekick/issues/new?title=Manager%20compatibility%3A%20).
 Include the network, manager principal, operation, and a redacted support bundle when available; do
 not include keys or credentials.
 

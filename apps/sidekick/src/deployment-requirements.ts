@@ -14,7 +14,7 @@ import {
 import { LiveTransactionReader } from "./transaction-engine/live-transaction-reader.js";
 
 const docsUrl =
-  "https://github.com/stx-labs/signer-sidekick/blob/main/docs/operator/node-signer-requirements.md";
+  "https://github.com/alexlmiller/signer-sidekick/blob/main/docs/operator/node-signer-requirements.md";
 const transactionIndexProbeTxid = `0x${"00".repeat(32)}`;
 
 type HealthSourceKind = "node-metrics" | "signer-monitoring" | "hiro-reference";
