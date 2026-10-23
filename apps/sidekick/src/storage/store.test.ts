@@ -311,11 +311,71 @@ describe("Sidekick SQLite store", () => {
     const store = await memoryStore();
 
     expect(store.databaseStatus()).toEqual({
-      schemaVersion: 44,
+      schemaVersion: 45,
       journalMode: "memory",
       synchronous: 1,
       foreignKeys: true,
     });
+  });
+
+  it("upgrades schema 44 without reclassifying legacy failures or re-enabling schedules", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "signer-sidekick-v44-upgrade-"));
+    temporaryDirectories.push(directory);
+    const path = join(directory, "sidekick.sqlite");
+    const initial = createDatabaseThroughMigration(path, 44);
+    initial.rewardSchedule.update({
+      enabled: false,
+      stopped: true,
+      state: "needs-attention",
+      detail: "There is no current reward work to run",
+    });
+    const priorSchedule = initial.rewardSchedule.get();
+    initial.close();
+    const id = "00000000-0000-4000-8000-000000000001";
+    const request = { requestId: id, cycle: 141, distribution: 1 };
+    const db = new DatabaseSync(path);
+    db.prepare(`INSERT INTO reward_run_preparations
+      (preparation_id, status, request_sha256, request_json, failure_reason, created_at, completed_at, updated_at)
+      VALUES (?, 'failed', ?, ?, ?, ?, ?, ?)`).run(
+      id,
+      "ab".repeat(32),
+      JSON.stringify(request),
+      "There is no current reward work to run",
+      observedAt,
+      observedAt,
+      observedAt,
+    );
+    db.close();
+    const upgraded = await openSidekickStore(path, later);
+    openStores.push(upgraded.store);
+    expect(upgraded.backupPath).not.toBeNull();
+    expect(upgraded.store.schemaVersion()).toBe(45);
+    expect(upgraded.store.rewardSchedule.get()).toEqual(priorSchedule);
+    expect(upgraded.store.rewardRuns.getPreparation(id)).toMatchObject({
+      status: "failed",
+      failureCode: null,
+      request,
+    });
+    const nextId = "00000000-0000-4000-8000-000000000002";
+    upgraded.store.rewardRuns.createPreparation({
+      preparationId: nextId,
+      requestSha256: "cd".repeat(32),
+      request,
+      now: later,
+    });
+    upgraded.store.rewardRuns.claimPreparation(nextId, later);
+    upgraded.store.rewardRuns.failPreparation(nextId, "No work", later, "no-work");
+    upgraded.store.close();
+    openStores.splice(openStores.indexOf(upgraded.store), 1);
+    const reopened = await openSidekickStore(path, later);
+    openStores.push(reopened.store);
+    expect(reopened.backupPath).toBeNull();
+    expect(reopened.store.rewardRuns.getPreparation(nextId)).toMatchObject({
+      status: "failed",
+      failureCode: "no-work",
+      runId: null,
+    });
+    expect(reopened.store.rewardSchedule.get()).toEqual(priorSchedule);
   });
 
   it("backs up schema 41 and adds a revision-leading audit index without changing history", async () => {
@@ -370,15 +430,15 @@ describe("Sidekick SQLite store", () => {
     const directory = await mkdtemp(join(tmpdir(), "signer-sidekick-future-schema-"));
     temporaryDirectories.push(directory);
     const path = join(directory, "sidekick.sqlite");
-    createDatabaseThroughMigration(path, 44).close();
+    createDatabaseThroughMigration(path, 45).close();
     const future = new DatabaseSync(path);
-    future.exec("PRAGMA user_version = 45");
+    future.exec("PRAGMA user_version = 46");
     future.close();
     await expect(openSidekickStore(path, later)).rejects.toThrow(
-      "schema version 45 is newer than supported version 44",
+      "schema version 46 is newer than supported version 45",
     );
     const inspection = new DatabaseSync(path, { readOnly: true });
-    expect(inspection.prepare("PRAGMA user_version").get()).toEqual({ user_version: 45 });
+    expect(inspection.prepare("PRAGMA user_version").get()).toEqual({ user_version: 46 });
     inspection.close();
   });
 
@@ -1579,7 +1639,7 @@ describe("Sidekick SQLite store", () => {
     expect((await stat(path)).mode & 0o777).toBe(0o600);
     expect((await stat(result.backupPath as string)).mode & 0o777).toBe(0o600);
     expect(result.store.databaseStatus()).toMatchObject({
-      schemaVersion: 44,
+      schemaVersion: 45,
       journalMode: "wal",
       synchronous: 2,
     });
@@ -1603,7 +1663,7 @@ describe("Sidekick SQLite store", () => {
     const upgraded = await openSidekickStore(path, later);
     openStores.push(upgraded.store);
     expect(upgraded.backupPath).not.toBeNull();
-    expect(upgraded.store.databaseStatus().schemaVersion).toBe(44);
+    expect(upgraded.store.databaseStatus().schemaVersion).toBe(45);
     expect(upgraded.store.runtimeSettings.get()?.settings).toMatchObject({
       displayName: "Preserved through forward migrations",
     });
@@ -1686,7 +1746,7 @@ describe("Sidekick SQLite store", () => {
 
     const upgraded = await openSidekickStore(path, later);
     openStores.push(upgraded.store);
-    expect(upgraded.store.schemaVersion()).toBe(44);
+    expect(upgraded.store.schemaVersion()).toBe(45);
     const inspection = new DatabaseSync(path, { readOnly: true });
     expect(
       inspection
@@ -1761,7 +1821,7 @@ describe("Sidekick SQLite store", () => {
     const upgraded = await openSidekickStore(path, later);
     openStores.push(upgraded.store);
     expect(upgraded.backupPath).not.toBeNull();
-    expect(upgraded.store.databaseStatus().schemaVersion).toBe(44);
+    expect(upgraded.store.databaseStatus().schemaVersion).toBe(45);
 
     const postUpgrade = new DatabaseSync(path);
     postUpgrade.exec(`
@@ -1890,7 +1950,7 @@ describe("Sidekick SQLite store", () => {
 
     const upgraded = await openSidekickStore(path, later);
     openStores.push(upgraded.store);
-    expect(upgraded.store.databaseStatus().schemaVersion).toBe(44);
+    expect(upgraded.store.databaseStatus().schemaVersion).toBe(45);
     expect(upgraded.store.managerTrust.listAudit(principal)).toMatchObject([
       {
         transition: "gained",
@@ -2017,7 +2077,7 @@ describe("Sidekick SQLite store", () => {
 
     const upgraded = await openSidekickStore(path, later);
     openStores.push(upgraded.store);
-    expect(upgraded.store.databaseStatus().schemaVersion).toBe(44);
+    expect(upgraded.store.databaseStatus().schemaVersion).toBe(45);
 
     const inspection = new DatabaseSync(path, { readOnly: true });
     const job = inspection

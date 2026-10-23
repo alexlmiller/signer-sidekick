@@ -15,7 +15,10 @@ import {
 } from "@stx-labs/signer-sidekick-protocol/reward-operation-plan";
 import { isRetryableChainReadError, RateLimitedError } from "../chain-clients.js";
 import { withOperatorRequestSignal } from "../request-context.js";
-import type { RewardRunRepository } from "../storage/reward-run-repository.js";
+import {
+  type RewardRunRepository,
+  RewardRunRepositoryError,
+} from "../storage/reward-run-repository.js";
 import {
   SubmittedObservationCadence,
   submittedObservationIntervalMs,
@@ -27,6 +30,7 @@ export type RewardRunErrorCode =
   | "reward_run_unavailable"
   | "reward_run_not_found"
   | "reward_run_invalid"
+  | "reward_run_no_work"
   | "reward_run_conflict"
   | "reward_run_expired"
   | "reward_run_refused";
@@ -39,6 +43,19 @@ export class RewardRunError extends Error {
     super(message);
     this.name = "RewardRunError";
   }
+}
+
+/** Safe to retry only before approval; never use this to resume a stopped execution. */
+export function rewardPreparationFailureCode(
+  error: unknown,
+): NonNullable<RewardRunPreparation["failureCode"]> | null {
+  if (error instanceof RewardRunError && error.code === "reward_run_no_work") return "no-work";
+  if (
+    isRetryableChainReadError(error) ||
+    (error instanceof RewardRunError && error.code === "reward_run_unavailable")
+  )
+    return "temporarily-unavailable";
+  return null;
 }
 
 export interface RewardRunDraftAccount {
@@ -326,7 +343,7 @@ export function buildRewardRunRecipe(input: {
     });
   }
   if (children.length === 0) {
-    throw new RewardRunError("reward_run_invalid", "There is no current reward work to run");
+    throw new RewardRunError("reward_run_no_work", "There is no current reward work to run");
   }
   const accountKeys = new Set<string>();
   const accounts = sortedAccounts
@@ -524,6 +541,10 @@ export class RewardRunService {
     } catch (error) {
       const raced = this.#options.repository.get(runId);
       if (raced?.recipe.prepareRequestSha256 === requestSha256) return raced;
+      if (error instanceof RewardRunRepositoryError && error.code === "authorization-busy") {
+        // Another preparation/sweep can acquire the lease while our chain reads are in flight.
+        throw new RewardRunError("reward_run_unavailable", error.message);
+      }
       throw new RewardRunError("reward_run_conflict", String(error));
     }
   }
@@ -562,6 +583,7 @@ export class RewardRunService {
         preparationId,
         error instanceof Error ? error.message : String(error),
         this.#now().toISOString(),
+        rewardPreparationFailureCode(error),
       );
     }
   }

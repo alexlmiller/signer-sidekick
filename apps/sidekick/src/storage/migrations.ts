@@ -2500,4 +2500,15 @@ export const migrations: readonly Migration[] = [
       ) STRICT;
     `,
   },
+  {
+    version: 45,
+    name: "reward_preparation_failure_classification",
+    sql: `
+      -- Only newly classified pre-approval outcomes may be retried by the scheduler.
+      -- Legacy failures remain unknown; do not guess from their human-readable messages.
+      ALTER TABLE reward_run_preparations ADD COLUMN failure_code TEXT
+        CHECK (failure_code IS NULL OR
+          (status = 'failed' AND failure_code IN ('no-work', 'temporarily-unavailable')));
+    `,
+  },
 ];

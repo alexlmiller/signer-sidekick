@@ -473,13 +473,19 @@ export function Rewards({
             settle({ status: "preparing", preparation });
           }
           if (preparation.status === "failed") {
+            if (preparation.failureCode === "no-work") {
+              settle({ status: "no-work" });
+              return null;
+            }
             throw new Error(preparation.failureReason ?? "Reward-run preparation failed");
           }
           if (!preparation.runId) throw new Error("Prepared reward run has no run ID");
           const run = await loadRewardRun(token, preparation.runId, controller.signal);
           return { run, reused: false };
         })
-        .then(({ run, reused }) => settle({ status: "ready", run, reused }))
+        .then((result) => {
+          if (result) settle({ status: "ready", ...result });
+        })
         .catch((cause: unknown) => {
           if (controller.signal.aborted) return;
           settle(

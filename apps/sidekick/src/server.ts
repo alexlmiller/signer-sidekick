@@ -529,6 +529,7 @@ const SAFE_OPERATOR_API_MESSAGES: Readonly<Record<string, string>> = {
   reward_run_unavailable:
     "Reward runs are unavailable. Enable and fund the gas wallet, then recheck the deployment.",
   reward_run_not_found: "This reward run no longer exists. Refresh Rewards.",
+  reward_run_no_work: "No eligible reward work remains for this action. Refresh Rewards.",
   reward_run_invalid:
     "The reward run no longer matches current chain evidence. Prepare and review a new run.",
   reward_run_conflict:
@@ -888,6 +889,7 @@ async function gasWalletCall<T>(operation: () => Promise<T>): Promise<T> {
 const REWARD_RUN_ERROR_STATUS: Readonly<Record<RewardRunErrorCode, number>> = {
   reward_run_unavailable: 503,
   reward_run_not_found: 404,
+  reward_run_no_work: 409,
   reward_run_invalid: 409,
   reward_run_conflict: 409,
   reward_run_expired: 409,

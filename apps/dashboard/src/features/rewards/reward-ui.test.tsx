@@ -1,12 +1,45 @@
 import type { RewardLedgerPayment } from "@stx-labs/signer-sidekick-api-contracts";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
+import { RewardConfirmSheet } from "./reward-confirm-sheet.js";
 import { PaymentsTable } from "./reward-payments.js";
 import { StakerCell, TxIdMarker } from "./reward-ui.js";
 
 const stacksTxId = `0x${"11".repeat(32)}`;
 const bitcoinTxId = `0x${"22".repeat(32)}`;
 const retirementTxId = `0x${"33".repeat(32)}`;
+
+it("shows an empty preparation as no action needed, without an approval or transaction count", () => {
+  const html = renderToStaticMarkup(
+    <RewardConfirmSheet
+      action={{
+        kind: "collect",
+        label: "Collect",
+        operations: ["claim-rewards"],
+        transactions: 1,
+        cycle: 141,
+        distribution: 1,
+      }}
+      eyebrow="Cycle 141"
+      execution={{
+        available: true,
+        reason: null,
+        chip: null,
+        chipTone: "none",
+        chipTooltip: null,
+        walletFallback: false,
+      }}
+      state={{ status: "no-work" }}
+      onCancel={() => {}}
+      onGo={() => {}}
+    />,
+  );
+  expect(html).toContain("Nothing was signed or sent");
+  expect(html).toContain('role="status"');
+  expect(html).not.toContain('role="alert"');
+  expect(html).not.toContain("rw-facts");
+  expect(html).not.toContain('class="btn btn-primary"');
+});
 
 function payment(overrides: Partial<RewardLedgerPayment> = {}): RewardLedgerPayment {
   return {
