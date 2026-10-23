@@ -23,9 +23,9 @@ export default defineConfig({
   },
   webServer: {
     command:
-      "pnpm --filter @stx-labs/signer-sidekick-dashboard dev --host 127.0.0.1 --port 4173 --strictPort",
+      "pnpm --filter @stx-labs/signer-sidekick-dashboard build && pnpm --filter @stx-labs/signer-sidekick-dashboard exec vite preview --host 127.0.0.1 --port 4173 --strictPort",
     url: "http://127.0.0.1:4173",
-    reuseExistingServer: !process.env.CI,
+    reuseExistingServer: false,
     timeout: 120_000,
   },
   projects: [

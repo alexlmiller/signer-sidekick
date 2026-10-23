@@ -29,11 +29,25 @@ repository, fixtures, commands, screenshots, or support bundles.
 - Display caches are not signing evidence. Fresh preparation and canonicality checks must bypass
   them; do not invent fresh observations from old samples or change health windows silently.
 
+Connect 8.2.6 has version-scoped Reown 1.8.24 overrides to remove elliptic and decode-uri-component.
+`pnpm check` rejects their return, unreviewed Zod 3 versions, and Zod 3/Reown/WalletConnect in
+server production dependencies. When upstream resolves a clean, tested graph, remove the overrides
+and revisit the Vite isolation guard: it deliberately fails if the expected wallet subtree disappears.
+The production build rejects eager imports of the optional wallet subtree. Browser tests use that
+build and the real Connect SDK with injected Leather/Xverse fixtures, checking both wallet results
+and absence of optional-chunk/relay requests. They do not replace real-extension smoke tests.
+
+The remaining Zod 3 advisory has a narrow, tracked exception in
+[#65](https://github.com/alexlmiller/signer-sidekick/issues/65), not an audit suppression.
+Recheck it on dependency updates/releases or any WalletConnect change. Solana 5.5.1 packages in
+that unloaded subtree require TypeScript `^5.0.0`; their peer warnings against TypeScript 7 are
+accepted as one group only while builds and isolation checks pass. Do not suppress other warnings.
+
 ## Additional validation
 
 | Command | Purpose |
 | --- | --- |
-| `pnpm test:e2e:dashboard` | Responsive fixture-backed browser suite |
+| `pnpm test:e2e:dashboard` | Production-build responsive and wallet-isolation browser suite |
 | `pnpm protocol:verify` | Vendored source and generated-artifact hashes |
 | `pnpm devnet:verify:offline` | Released-Devnet lock without network access |
 | `pnpm test:regtest:external` | Read-only smoke against a supplied PoX-5 network |

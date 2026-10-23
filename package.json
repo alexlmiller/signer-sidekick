@@ -12,7 +12,8 @@
   "scripts": {
     "build": "pnpm -r --if-present build",
     "build:contracts": "pnpm --filter @stx-labs/signer-sidekick-protocol build && pnpm --filter @stx-labs/signer-sidekick-api-contracts build",
-    "check": "biome check . && pnpm typecheck && pnpm third-party:licenses && pnpm census:verify",
+    "check": "biome check . && pnpm dependencies:verify && pnpm typecheck && pnpm third-party:licenses && pnpm census:verify",
+    "dependencies:verify": "node --test scripts/verify-dependency-graph.test.mjs && node scripts/verify-dependency-graph.mjs",
     "check:fix": "biome check --write .",
     "typecheck": "pnpm build:contracts && pnpm -r --if-present typecheck && tsc -p test/integration/regtest/tsconfig.json --noEmit",
     "test": "pnpm build:contracts && pnpm -r --if-present test && pnpm test:devnet:harness && pnpm test:observer-latency && pnpm test:census:managers",
@@ -53,15 +54,17 @@
     "@stacks/network": "7.5.0",
     "@stacks/transactions": "7.5.0",
     "@types/node": "26.1.1",
-    "@vitest/coverage-v8": "4.1.11",
+    "@vitest/coverage-v8": "4.1.12",
     "typescript": "7.0.2",
-    "vitest": "4.1.11",
+    "vitest": "4.1.12",
     "vitest-environment-clarinet": "3.0.2"
   },
   "pnpm": {
     "overrides": {
-      "fast-uri@>=3.0.0 <3.1.6": "3.1.6",
-      "fast-uri@>=4.0.0 <4.1.3": "4.1.3",
+      "@stacks/connect@8.2.6>@reown/appkit": "1.8.24",
+      "@stacks/connect@8.2.6>@reown/appkit-universal-connector": "1.8.24",
+      "fast-uri@>=3.0.0 <3.1.8": "3.1.8",
+      "fast-uri@>=4.0.0 <4.1.5": "4.1.5",
       "nanoid@>=3.0.0 <3.3.18": "3.3.18",
       "postcss@>=8.0.0 <8.5.23": "8.5.23",
       "ws@>=8.0.0 <8.21.0": "8.21.0"
