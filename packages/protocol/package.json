@@ -93,12 +93,12 @@
   },
   "dependencies": {
     "@stacks/transactions": "7.5.0",
-    "zod": "4.4.3"
+    "zod": "4.6.6"
   },
   "devDependencies": {
     "@types/node": "26.1.1",
     "tsx": "4.23.1",
     "typescript": "7.0.2",
-    "vitest": "4.1.11"
+    "vitest": "4.1.12"
   }
 }

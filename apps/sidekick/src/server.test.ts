@@ -1,3 +1,4 @@
+import { fileURLToPath } from "node:url";
 import {
   activityResponseSchema,
   type ConnectionAssessment,
@@ -6,6 +7,7 @@ import {
   type RewardRun,
   type RewardRunPreparation,
 } from "@stx-labs/signer-sidekick-api-contracts";
+import Fastify, { type FastifyReply, type FastifyRequest } from "fastify";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ActivityProjectionError } from "./activity-projection.js";
 import { ChainAnchorError, RateLimitedError, UpstreamHttpError } from "./chain-clients.js";
@@ -216,6 +218,77 @@ afterEach(async () => {
 });
 
 describe("local API", () => {
+  it("rejects malformed URLs without reaching operator handlers with static serving enabled", async () => {
+    const token = "test-operator-token-with-32-chars";
+    const snapshot = vi.fn(async () => ({ network: "mainnet" }));
+    const synchronize = vi.fn(async () => ({}));
+    const server = createServer({
+      service: { snapshot, synchronize },
+      authToken: token,
+      logger: false,
+      staticDirectory: fileURLToPath(new URL("../../dashboard", import.meta.url)),
+    });
+    servers.push(server);
+    expect((await server.inject("/index.html")).statusCode).toBe(200);
+    expect((await server.inject("/api/v1/status")).statusCode).toBe(401);
+    for (const method of ["GET", "POST", "TRACE"] as const) {
+      for (const url of ["/api/v1/%", "/api/%FF/status", "/%C0%AF", "/%"]) {
+        const response = await server.inject({ method, url });
+        expect(response.statusCode).toBe(400);
+        expect(response.body).not.toContain("mainnet");
+      }
+    }
+    expect(snapshot).not.toHaveBeenCalled();
+    expect(synchronize).not.toHaveBeenCalled();
+    const response = await server.inject({
+      url: "/api/v1/status",
+      headers: { authorization: `Bearer ${token}` },
+    });
+    expect(response.statusCode).toBe(200);
+    expect(snapshot).toHaveBeenCalledOnce();
+  });
+
+  it("does not route a malformed public URL to a private sibling fallback", async () => {
+    // GHSA-p68q-wchp-6fh7: the old 404 router skipped both prefix isolation and auth.
+    const server = Fastify({ logger: false });
+    servers.push(server);
+    const fallback = vi.fn((_request: FastifyRequest, reply: FastifyReply) =>
+      reply.send({ protected: true }),
+    );
+    server.register(
+      async (publicApi) => {
+        publicApi.get("/ok", async () => ({ ok: true }));
+        publicApi.setNotFoundHandler(async (_request, reply) => reply.code(404).send());
+      },
+      { prefix: "/public" },
+    );
+    server.register(
+      async (privateApi) => {
+        privateApi.setNotFoundHandler(
+          {
+            preHandler: async (request, reply) => {
+              if (request.headers.authorization !== "Bearer test") return reply.code(401).send();
+            },
+          },
+          fallback,
+        );
+      },
+      { prefix: "/private" },
+    );
+    expect((await server.inject({ method: "POST", url: "/public/%" })).statusCode).toBe(400);
+    expect(fallback).not.toHaveBeenCalled();
+    expect((await server.inject("/private/missing")).statusCode).toBe(401);
+    expect(fallback).not.toHaveBeenCalled();
+    expect(
+      (
+        await server.inject({
+          url: "/private/missing",
+          headers: { authorization: "Bearer test" },
+        })
+      ).json(),
+    ).toEqual({ protected: true });
+  });
+
   it("reports the exact protocol pin", async () => {
     const server = createServer();
     servers.push(server);
