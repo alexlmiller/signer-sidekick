@@ -17,7 +17,7 @@ Set these values in `.env`:
 | Variable | Value |
 | --- | --- |
 | `SIDEKICK_IMAGE_TAG` | Release version without the Git tag's `v` prefix |
-| `SIDEKICK_IMAGE_REPOSITORY` | Image repository listed in the selected release notes; defaults to `ghcr.io/stx-labs/signer-sidekick` for existing releases through v2.3.0 |
+| `SIDEKICK_IMAGE_REPOSITORY` | Defaults to `ghcr.io/alexlmiller/signer-sidekick`; releases through v2.3.0 use `ghcr.io/stx-labs/signer-sidekick` |
 | `STACKS_NODE_RPC_URL` | Node RPC URL reachable from the container |
 | `SIDEKICK_MANAGER_PRINCIPAL` | Existing `SP_ADDRESS.contract-name` manager |
 | `SIDEKICK_AUTH_TOKEN` | Unique random operator credential (at least 24 characters) |

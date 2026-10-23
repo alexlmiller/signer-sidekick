@@ -2,4 +2,4 @@
 services:
   sidekick:
     build: !reset null
-    image: ${SIDEKICK_IMAGE_REPOSITORY:-ghcr.io/stx-labs/signer-sidekick}:${SIDEKICK_IMAGE_TAG:?Set SIDEKICK_IMAGE_TAG in .env}
+    image: ${SIDEKICK_IMAGE_REPOSITORY:-ghcr.io/alexlmiller/signer-sidekick}:${SIDEKICK_IMAGE_TAG:?Set SIDEKICK_IMAGE_TAG in .env}
