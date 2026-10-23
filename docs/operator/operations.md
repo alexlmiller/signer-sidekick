@@ -49,9 +49,9 @@ curl --fail http://127.0.0.1:3998/health/operational
    submitted work and background freshness. Do not mistake container health for indexing completion.
    Re-enable automatic reward runs only after these checks pass.
 
-Schema 44 adds the reward schedule and initiation provenance without rewriting financial rows;
-upgrading does not enable it. File-backed upgrades take an automatic pre-migration backup. Older
-binaries refuse newer schemas: rollback needs the compatible database, not just the old image.
+Schema 45 adds preparation failure classification without rewriting financial rows. Upgrading does
+not enable or re-enable automatic reward runs. File-backed upgrades take an automatic pre-migration
+backup. Older binaries refuse newer schemas: rollback needs the compatible database, not just the old image.
 Never restore over newer submissions without reconciling them first.
 
 ## Restore
