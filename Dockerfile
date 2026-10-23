@@ -32,7 +32,7 @@ LABEL org.opencontainers.image.title="Signer Sidekick" \
   org.opencontainers.image.licenses="GPL-3.0-only" \
   org.opencontainers.image.revision="${VCS_REF}" \
   org.opencontainers.image.version="${VERSION}" \
-  org.opencontainers.image.source="https://github.com/stx-labs/signer-sidekick"
+  org.opencontainers.image.source="https://github.com/alexlmiller/signer-sidekick"
 
 ENV NODE_ENV=production \
   SIDEKICK_BUILD_VERSION=${VERSION} \

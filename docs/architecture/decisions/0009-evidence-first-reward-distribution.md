@@ -2,7 +2,7 @@
 
 - Status: Accepted
 - Date: 2026-08-22
-- Tracking: [#34](https://github.com/stx-labs/signer-sidekick/issues/34)
+- Tracking: [#34](https://github.com/alexlmiller/signer-sidekick/issues/34)
 
 ## Context
 

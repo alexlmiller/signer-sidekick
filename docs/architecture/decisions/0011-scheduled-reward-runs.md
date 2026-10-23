@@ -2,7 +2,7 @@
 
 - Status: Proposed for merge review
 - Date: 2026-09-21
-- Tracking: [#6](https://github.com/stx-labs/signer-sidekick/issues/6)
+- Tracking: [#6](https://github.com/alexlmiller/signer-sidekick/issues/6)
 
 ## Decision
 

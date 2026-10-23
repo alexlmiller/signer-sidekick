@@ -164,7 +164,7 @@ describe("operator support bundle", () => {
               ],
               restartServices: ["stacks-signer", "sidekick"],
               docsUrl:
-                "https://github.com/stx-labs/signer-sidekick/blob/main/docs/operator/node-signer-requirements.md",
+                "https://github.com/alexlmiller/signer-sidekick/blob/main/docs/operator/node-signer-requirements.md",
             },
           },
         ],

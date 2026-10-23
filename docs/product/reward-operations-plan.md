@@ -54,5 +54,5 @@ payment-query and CSV costs before adding another projection or changing the led
 
 Opt-in scheduled approval is defined separately in
 [ADR 0011](../architecture/decisions/0011-scheduled-reward-runs.md), with rollout tracked in
-[#6](https://github.com/stx-labs/signer-sidekick/issues/6). Pipelined nonces, public staker UI,
+[#6](https://github.com/alexlmiller/signer-sidekick/issues/6). Pipelined nonces, public staker UI,
 signer/admin key custody, and selective recipient runs remain out of scope.

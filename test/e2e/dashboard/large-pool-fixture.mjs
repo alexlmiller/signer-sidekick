@@ -89,7 +89,7 @@ export const deploymentRequirements = {
         ],
         restartServices: ["stacks-node"],
         docsUrl:
-          "https://github.com/stx-labs/signer-sidekick/blob/main/docs/operator/node-signer-requirements.md",
+          "https://github.com/alexlmiller/signer-sidekick/blob/main/docs/operator/node-signer-requirements.md",
       },
     },
   ],
