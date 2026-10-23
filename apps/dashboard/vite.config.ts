@@ -1,3 +1,4 @@
+import { mkdirSync, writeFileSync } from "node:fs";
 import react from "@vitejs/plugin-react";
 import { defineConfig, type Plugin } from "vite";
 
@@ -38,14 +39,16 @@ function walletIsolation(): Plugin {
         this.error(
           `Optional wallet code became eager: ${leaked.map((chunk) => chunk.fileName).join(", ")}`,
         );
-      this.emitFile({
-        type: "asset",
-        fileName: ".vite/wallet-isolation.json",
-        source: JSON.stringify({
+      // Test evidence is not a public asset and must not enter the production image.
+      const evidenceDirectory = new URL("../../tmp/", import.meta.url);
+      mkdirSync(evidenceDirectory, { recursive: true });
+      writeFileSync(
+        new URL("dashboard-wallet-isolation.json", evidenceDirectory),
+        JSON.stringify({
           optionalChunks: boundary.map((chunk) => chunk.fileName),
           connectChunks: connect.map((chunk) => chunk.fileName),
         }),
-      });
+      );
     },
   };
 }

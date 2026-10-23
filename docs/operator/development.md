@@ -30,7 +30,9 @@ repository, fixtures, commands, screenshots, or support bundles.
   them; do not invent fresh observations from old samples or change health windows silently.
 
 Connect 8.2.6 has version-scoped Reown 1.8.24 overrides to remove elliptic and decode-uri-component.
-`pnpm check` rejects their return; remove the overrides when upstream resolves a clean, tested graph.
+`pnpm check` rejects their return, unreviewed Zod 3 versions, and Zod 3/Reown/WalletConnect in
+server production dependencies. When upstream resolves a clean, tested graph, remove the overrides
+and revisit the Vite isolation guard: it deliberately fails if the expected wallet subtree disappears.
 The production build rejects eager imports of the optional wallet subtree. Browser tests use that
 build and the real Connect SDK with injected Leather/Xverse fixtures, checking both wallet results
 and absence of optional-chunk/relay requests. They do not replace real-extension smoke tests.

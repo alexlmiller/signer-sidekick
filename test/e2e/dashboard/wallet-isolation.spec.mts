@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { expect, test } from "@playwright/test";
 import type { BrowserWalletIntent } from "@stx-labs/signer-sidekick-api-contracts";
 import { browserWalletManifestSha256 } from "../../../apps/dashboard/src/features/operations/browser-wallet.js";
@@ -10,12 +10,11 @@ for (const providerName of ["Leather", "Xverse"] as const) {
     test(`${providerName} ${cancelled ? "cancellation" : "submission"} leaves optional wallet code unloaded`, async ({
       page,
     }) => {
-      const metadata = JSON.parse(
-        readFileSync("apps/dashboard/dist/.vite/wallet-isolation.json", "utf8"),
-      ) as {
+      const metadata = JSON.parse(readFileSync("tmp/dashboard-wallet-isolation.json", "utf8")) as {
         optionalChunks: string[];
         connectChunks: string[];
       };
+      expect(existsSync("apps/dashboard/dist/.vite/wallet-isolation.json")).toBe(false);
       const requests: string[] = [];
       const sockets: string[] = [];
       page.on("request", (request) => requests.push(request.url()));
