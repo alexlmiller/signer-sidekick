@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1.7
 
-ARG NODE_VERSION=24.18.0
+ARG NODE_VERSION=24.22.1
 ARG VERSION=dev
 
 FROM node:${NODE_VERSION}-bookworm-slim AS build
