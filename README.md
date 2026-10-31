@@ -26,7 +26,7 @@ gas wallet and one approved recipe at a time, manually or through an
 
 ## Development
 
-Requires Node.js 24.18.0 and pnpm 10.32.1. See [Development](docs/operator/development.md).
+Requires Node.js 24.22.1 and pnpm 10.32.1. See [Development](docs/operator/development.md).
 
 ```sh
 pnpm install

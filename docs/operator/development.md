@@ -2,7 +2,7 @@
 
 ## Setup
 
-Requires Node.js 24.18.0, pnpm 10.32.1, and Docker for container or Devnet tests.
+Requires Node.js 24.22.1, pnpm 10.32.1, and Docker for container or Devnet tests.
 
 ```sh
 pnpm install
