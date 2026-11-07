@@ -1478,6 +1478,7 @@ describe("reward run coordinator", () => {
     // Recreate the previous schema and its parent-only unresolved diagnostic.
     const legacy = new DatabaseSync(path);
     legacy.exec(`
+      DROP INDEX position_verified_bond_cycle;
       ALTER TABLE reward_run_preparations DROP COLUMN failure_code;
       DROP TABLE reward_schedule_requests;
       DROP TABLE reward_schedule;

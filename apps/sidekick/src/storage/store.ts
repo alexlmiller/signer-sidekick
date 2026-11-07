@@ -3608,6 +3608,67 @@ export class SidekickStore {
     });
   }
 
+  /** Hints only: discoverStakerClaims reads each bucket at the payout anchor before admission. */
+  listRewardClaimPrincipals(input: {
+    manager: string;
+    sourceId: string;
+    runId: string;
+    chainId: number;
+    cycle: number;
+    bondIndices: readonly bigint[];
+    offset: number;
+    limit: number;
+  }): { principals: string[]; total: number } {
+    const { manager, sourceId, runId, chainId, cycle } = input;
+    const rows = this.db
+      .prepare(`
+      WITH candidates AS (SELECT s.staker_principal FROM stakers s
+      WHERE s.manager_principal = ? AND s.source_id = ? AND s.last_seen_run_id = ?
+        AND s.active = 1 AND (s.stx_node_verified = 1 OR s.bond_index IS NOT NULL OR EXISTS (
+          SELECT 1 FROM stake_positions p WHERE p.manager_principal = s.manager_principal
+            AND p.staker_principal = s.staker_principal AND p.active = 1))
+      UNION SELECT staker_principal FROM cycle_memberships
+        WHERE manager_principal = ? AND signer_principal = ? AND discovery_source_id = ?
+          AND reward_cycle = ? AND amount_ustx != '0'
+      UNION SELECT staker_principal FROM manager_activity_events
+        WHERE chain_id = ? AND manager_principal = ? AND reward_cycle = ?
+          AND canonical = 1 AND kind = 'claim-staker-rewards'
+      UNION SELECT staker_principal FROM staker_position_observations
+        WHERE manager_principal = ? AND source_id = ? AND reconciliation_complete = 1
+          AND json_extract(position_detail_json, '$.bond.bondIndex') IS NOT NULL
+          AND json_extract(position_detail_json, '$.bond.bondIndex') IN (SELECT value FROM json_each(?))
+          AND json_extract(chain_anchor_json, '$.rewardCycle') = ?)
+      SELECT totals.total, page.staker_principal
+      FROM (SELECT count(*) AS total FROM candidates) totals
+      LEFT JOIN (SELECT staker_principal FROM candidates ORDER BY staker_principal LIMIT ? OFFSET ?) page ON 1
+      ORDER BY page.staker_principal
+    `)
+      .all(
+        manager,
+        sourceId,
+        runId,
+        manager,
+        manager,
+        sourceId,
+        String(cycle),
+        chainId,
+        manager,
+        String(cycle),
+        manager,
+        sourceId,
+        JSON.stringify(input.bondIndices.map(String)),
+        cycle,
+        input.limit,
+        input.offset,
+      );
+    return {
+      principals: rows.flatMap((row) =>
+        row.staker_principal === null ? [] : [String(row.staker_principal)],
+      ),
+      total: Number(rows[0]?.total ?? 0),
+    };
+  }
+
   listCycleMembershipsForCycle(
     managerPrincipal: string,
     rewardCycle: number,

@@ -70,9 +70,9 @@ See the Hiro API references for
 [principal transactions](https://docs.hiro.so/en/apis/stacks-blockchain-api/reference/transactions/get-principal-transactions)
 and [transaction events](https://docs.hiro.so/en/apis/stacks-blockchain-api/reference/transactions/get-transaction-events).
 
-Departed members are not recovered by default. Their past activity did not contribute to the
-freshly reconstructed current state, and omitting it avoids an unbounded global-contract scan. A
-future explicit archival export may broaden that scope without changing the first-run promise.
+A fresh install does not scan every former member's address. It can still discover a claim from
+retained cycle membership or manager payment evidence. A former member with neither may be
+unknown to Sidekick; an empty claim list is not proof that no such member exists.
 
 ## Scheduling and backpressure
 

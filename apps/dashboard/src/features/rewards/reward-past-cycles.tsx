@@ -159,7 +159,7 @@ export function PastCyclesLedger({
                     {cycle.coverage === "historical-coverage-incomplete" ? (
                       <span
                         className="rw-coverage"
-                        title="Sidekick has not yet seen every payment for this cycle"
+                        title={cycle.coverageNote ?? "Some historical evidence is unavailable."}
                       >
                         {" "}
                         history incomplete
@@ -195,6 +195,7 @@ export function PastCyclesLedger({
                   <tr className="rw-ledger-panel-row" key={`${cycle.cycle}-panel`}>
                     <td colSpan={6}>
                       <div className="rw-ledger-panel">
+                        {cycle.coverageNote ? <p>{cycle.coverageNote}</p> : null}
                         <div
                           className="rw-dist-tabs"
                           role="tablist"

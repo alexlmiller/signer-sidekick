@@ -311,7 +311,7 @@ describe("Sidekick SQLite store", () => {
     const store = await memoryStore();
 
     expect(store.databaseStatus()).toEqual({
-      schemaVersion: 45,
+      schemaVersion: 46,
       journalMode: "memory",
       synchronous: 1,
       foreignKeys: true,
@@ -349,7 +349,7 @@ describe("Sidekick SQLite store", () => {
     const upgraded = await openSidekickStore(path, later);
     openStores.push(upgraded.store);
     expect(upgraded.backupPath).not.toBeNull();
-    expect(upgraded.store.schemaVersion()).toBe(45);
+    expect(upgraded.store.schemaVersion()).toBe(46);
     expect(upgraded.store.rewardSchedule.get()).toEqual(priorSchedule);
     expect(upgraded.store.rewardRuns.getPreparation(id)).toMatchObject({
       status: "failed",
@@ -430,15 +430,15 @@ describe("Sidekick SQLite store", () => {
     const directory = await mkdtemp(join(tmpdir(), "signer-sidekick-future-schema-"));
     temporaryDirectories.push(directory);
     const path = join(directory, "sidekick.sqlite");
-    createDatabaseThroughMigration(path, 45).close();
+    createDatabaseThroughMigration(path, 46).close();
     const future = new DatabaseSync(path);
-    future.exec("PRAGMA user_version = 46");
+    future.exec("PRAGMA user_version = 47");
     future.close();
     await expect(openSidekickStore(path, later)).rejects.toThrow(
-      "schema version 46 is newer than supported version 45",
+      "schema version 47 is newer than supported version 46",
     );
     const inspection = new DatabaseSync(path, { readOnly: true });
-    expect(inspection.prepare("PRAGMA user_version").get()).toEqual({ user_version: 46 });
+    expect(inspection.prepare("PRAGMA user_version").get()).toEqual({ user_version: 47 });
     inspection.close();
   });
 
@@ -693,7 +693,23 @@ describe("Sidekick SQLite store", () => {
     }
 
     expect(store.listManagerClaims(1, manager)).toMatchObject({ total: 1 });
+    const candidates = {
+      manager,
+      chainId: 1,
+      sourceId,
+      runId: "no-current-roster",
+      cycle: 141,
+      bondIndices: [],
+      limit: 100,
+      offset: 0,
+    };
+    expect(store.listRewardClaimPrincipals(candidates).principals).toEqual([stakerOne]);
+    expect(store.listRewardClaimPrincipals({ ...candidates, chainId: 2 }).principals).toEqual([]);
+    expect(store.listRewardClaimPrincipals({ ...candidates, manager: pox5 }).principals).toEqual(
+      [],
+    );
     expect(store.markIndexBlockNonCanonical(1, indexBlockHash, later)).toBe(2);
+    expect(store.listRewardClaimPrincipals(candidates).principals).toEqual([]);
     expect(store.getChainEvent(1, txId, 0)).toMatchObject({ canonical: false, updatedAt: later });
     expect(store.listManagerClaims(1, manager)).toMatchObject({ total: 0, items: [] });
   });
@@ -1508,6 +1524,98 @@ describe("Sidekick SQLite store", () => {
     ).toMatchObject([{ canonical: false, updatedAt: later }]);
   });
 
+  it("discovers departed STX and bond accounts only for their payout cycle", async () => {
+    const store = await memoryStore();
+    registerSource(store);
+    registerNodeSource(store);
+    const scan = (at: string) =>
+      store.startOrResumeSignerStakerRun(sourceId, manager, at, chainAnchor).runId;
+    const seed = scan(observedAt);
+    const common = {
+      sourceId,
+      nodeSourceId,
+      managerPrincipal: manager,
+      nextCursor: null,
+      chainAnchor,
+      burnBlockHeight: chainAnchor.burnBlockHeight,
+      stacksTipHeight: chainAnchor.stacksBlockHeight,
+    };
+    store.commitSignerStakerPage({
+      ...common,
+      runId: seed,
+      observedAt,
+      items: [
+        {
+          stakerPrincipal: stakerOne,
+          active: true,
+          hasStx: true,
+          hasBtc: false,
+          stxNodeVerified: true,
+          position: {
+            signerPrincipal: manager,
+            amountUstx: 50n,
+            firstRewardCycle: 141n,
+            numCycles: 1n,
+            cycleMemberships: [{ rewardCycle: 141n, signerPrincipal: manager, amountUstx: 50n }],
+          },
+        },
+        {
+          stakerPrincipal: stakerTwo,
+          active: true,
+          hasStx: false,
+          hasBtc: true,
+          stxNodeVerified: null,
+          position: null,
+          bond: {
+            signer: manager,
+            bondIndex: 0n,
+            amountSats: 100n,
+            amountUstx: 0n,
+            isL1Lock: true,
+          },
+        },
+      ],
+    });
+    const query = {
+      manager,
+      chainId: 1,
+      sourceId,
+      runId: seed,
+      cycle: 141,
+      bondIndices: [0n],
+      limit: 100,
+      offset: 0,
+    };
+    expect(store.listRewardClaimPrincipals(query)).toEqual({
+      principals: [stakerOne, stakerTwo],
+      total: 2,
+    });
+    const runId = scan(later);
+    store.commitSignerStakerPage({
+      ...common,
+      runId,
+      items: [],
+      observedAt: later,
+      authoritativeCompletion: true,
+    });
+    expect(store.listSignerStakers(manager)).toHaveLength(0);
+    expect(store.listRewardClaimPrincipals({ ...query, runId, limit: 1, offset: 1 })).toEqual({
+      principals: [stakerTwo],
+      total: 2,
+    });
+    expect(store.listRewardClaimPrincipals({ ...query, runId, offset: 2 })).toEqual({
+      principals: [],
+      total: 2,
+    });
+    expect(
+      store.listRewardClaimPrincipals({ ...query, runId, bondIndices: [1n] }).principals,
+    ).toEqual([stakerOne]);
+    expect(store.listRewardClaimPrincipals({ ...query, runId, cycle: 142 }).principals).toEqual([]);
+    expect(
+      store.listRewardClaimPrincipals({ ...query, runId, sourceId: "different-source" }).principals,
+    ).toEqual([]);
+  });
+
   it("resumes partial scans without deactivating unseen members until completion", async () => {
     const store = await memoryStore();
     registerSource(store);
@@ -1639,7 +1747,7 @@ describe("Sidekick SQLite store", () => {
     expect((await stat(path)).mode & 0o777).toBe(0o600);
     expect((await stat(result.backupPath as string)).mode & 0o777).toBe(0o600);
     expect(result.store.databaseStatus()).toMatchObject({
-      schemaVersion: 45,
+      schemaVersion: 46,
       journalMode: "wal",
       synchronous: 2,
     });
@@ -1663,7 +1771,7 @@ describe("Sidekick SQLite store", () => {
     const upgraded = await openSidekickStore(path, later);
     openStores.push(upgraded.store);
     expect(upgraded.backupPath).not.toBeNull();
-    expect(upgraded.store.databaseStatus().schemaVersion).toBe(45);
+    expect(upgraded.store.databaseStatus().schemaVersion).toBe(46);
     expect(upgraded.store.runtimeSettings.get()?.settings).toMatchObject({
       displayName: "Preserved through forward migrations",
     });
@@ -1746,7 +1854,7 @@ describe("Sidekick SQLite store", () => {
 
     const upgraded = await openSidekickStore(path, later);
     openStores.push(upgraded.store);
-    expect(upgraded.store.schemaVersion()).toBe(45);
+    expect(upgraded.store.schemaVersion()).toBe(46);
     const inspection = new DatabaseSync(path, { readOnly: true });
     expect(
       inspection
@@ -1821,7 +1929,7 @@ describe("Sidekick SQLite store", () => {
     const upgraded = await openSidekickStore(path, later);
     openStores.push(upgraded.store);
     expect(upgraded.backupPath).not.toBeNull();
-    expect(upgraded.store.databaseStatus().schemaVersion).toBe(45);
+    expect(upgraded.store.databaseStatus().schemaVersion).toBe(46);
 
     const postUpgrade = new DatabaseSync(path);
     postUpgrade.exec(`
@@ -1950,7 +2058,7 @@ describe("Sidekick SQLite store", () => {
 
     const upgraded = await openSidekickStore(path, later);
     openStores.push(upgraded.store);
-    expect(upgraded.store.databaseStatus().schemaVersion).toBe(45);
+    expect(upgraded.store.databaseStatus().schemaVersion).toBe(46);
     expect(upgraded.store.managerTrust.listAudit(principal)).toMatchObject([
       {
         transition: "gained",
@@ -2077,7 +2185,7 @@ describe("Sidekick SQLite store", () => {
 
     const upgraded = await openSidekickStore(path, later);
     openStores.push(upgraded.store);
-    expect(upgraded.store.databaseStatus().schemaVersion).toBe(45);
+    expect(upgraded.store.databaseStatus().schemaVersion).toBe(46);
 
     const inspection = new DatabaseSync(path, { readOnly: true });
     const job = inspection

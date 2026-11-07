@@ -79,7 +79,7 @@ must not be rendered as settled financial truth.
 A staker payout remains unavailable until Sidekick proves that the raw fee-snapshot entry exists
 for the exact cycle/bucket. The contract otherwise permits one pooled manager balance to fund an
 unclaimed bucket while applying an absent fee as zero. Every wallet intent and operator-run child
-preserves this client-side solvency and fee invariant.
+preserves this client-side solvency and fee invariant. Claim discovery also checks retained target-cycle STX memberships, verified bonds and canonical payments: leaving the current roster does not forfeit an entitlement. These identify candidates only; a fresh anchored read decides whether to pay.
 
 Exact checkpoint allocations require the reward-index delta and the account's shares at the
 calculation anchor. Sidekick performs best-effort backfill, but never invents unavailable history.
@@ -112,7 +112,7 @@ reconciliation (`collected` or `simulation`), also exported as appended CSV colu
 not added to account fees or indexed earned income: the reference manager leaves it reserved in
 `unclaimed-staker-rewards`, outside `earned-fees` and sweepable surplus. `estimated` identifies
 still-unpinned account fees. These amount-coverage labels do not replace historical attribution
-states; departed-member coverage alone does not invalidate fully reconciled account amounts.
+states. A roster change does not invalidate a recorded payment. Explain missing evidence at the cycle level; it is not proof of an outstanding balance.
 A known partial sum is not a distribution total.
 
 Never infer fees from pool gross minus visible payments, or apply a cycle-wide fee rate to missing
@@ -121,7 +121,7 @@ A cycle earned-fee total is null if any paid fee is unknown, interpretation/reco
 or its evidence window is truncated; the global known indexed subtotal remains explicitly partial.
 Missing manager interpretation, current live reward reads, or incomplete recovery must not produce
 a `complete`/zero-payments state. The ledger exposes `interpretation-unavailable` and a reason
-instead. Departed membership and evidence-window truncation remain coverage labels; they do not
+instead. Gaps in historical attribution do not
 reopen a completed distribution with observed payments. Independently, a nonzero or unknown pool
 with no payment evidence still cannot establish completion. A proven zero allocation remains zero.
 Overview separately exposes the current

@@ -632,7 +632,7 @@ describe("buildRewardLedger", () => {
       snapshot: snapshot({ roster: [{ stakerPrincipal: bob, active: true }] }),
     });
     expect(ledger.cycles[0]).toMatchObject({
-      coverage: "historical-coverage-incomplete",
+      coverage: "exact",
       operatorFeeSats: "98",
     });
     expect(ledger.cycles[0]?.distributions[0]).toMatchObject({
@@ -1197,7 +1197,7 @@ describe("buildRewardLedger", () => {
     });
   });
 
-  it("marks historical coverage incomplete while recovery runs or members departed", async () => {
+  it("explains an unaccounted cycle member separately from a confirmed payment and ongoing recovery", async () => {
     const base = {
       store: fakeStore({
         realizations: [realization(139, "first-half", 500, "900000", tx(1))],
@@ -1221,7 +1221,10 @@ describe("buildRewardLedger", () => {
     expect(departed.cycles.find((c) => c.cycle === 139)?.coverage).toBe(
       "historical-coverage-incomplete",
     );
-    expect(departed.payments[0]?.coverage).toBe("historical-coverage-incomplete");
+    expect(departed.payments[0]).toMatchObject({ coverage: "exact", status: "paid" });
+    expect(departed.cycles.find((c) => c.cycle === 139)?.coverageNote).toContain(
+      "no recorded STX payment",
+    );
     expect(departed.cycles.find((c) => c.cycle === 139)?.distributions[0]?.status).toBe("complete");
     const reconstructing = await buildRewardLedger({
       ...base,
@@ -1252,7 +1255,36 @@ describe("buildRewardLedger", () => {
         rewards: { rewardCycle: 141, calculation: { next: null }, stakers: [] },
       }),
     });
-    expect(complete.cycles.find((c) => c.cycle === 139)?.coverage).toBe("exact");
+    expect(complete.cycles.find((c) => c.cycle === 139)?.coverage).toBe(
+      departed.cycles.find((c) => c.cycle === 139)?.coverage,
+    );
+  });
+
+  it("retains the cycle payment without guessing a later calculation as its distribution", async () => {
+    const ledger = await buildRewardLedger({
+      store: fakeStore({
+        claims: [claim(40, alice, 139, 400, "100000")],
+        realizations: [realization(139, "second-half", 500, "900000", tx(1))],
+      }),
+      chainId: 1,
+      managerPrincipal: manager,
+      pox5ContractId: pox5,
+      sourceId: null,
+      ownedTxids: new Set(),
+      now,
+      snapshot: snapshot({}),
+      query: { cycle: 139 },
+    });
+    expect(ledger.payments[0]).toMatchObject({
+      status: "paid",
+      payoutSats: "100000",
+      distribution: null,
+      includesPriorDistribution: false,
+    });
+    expect(ledger.cycles.find((c) => c.cycle === 139)).toMatchObject({
+      coverageNote: "Calculation evidence is missing for recorded transactions.",
+      distributedSats: "100000",
+    });
   });
 
   it("reports accruing, waiting, and overdue before the calculation exists", async () => {
@@ -1372,7 +1404,7 @@ describe("buildRewardLedger", () => {
     });
     expect(complete.cycles.map((c) => [c.cycle, c.coverage])).toEqual([
       [141, "exact"],
-      [140, "exact"],
+      [140, "historical-coverage-incomplete"],
       [139, "exact"],
       [138, "exact"],
     ]);
@@ -1387,7 +1419,7 @@ describe("buildRewardLedger", () => {
     });
     expect(windowed.cycles.map((c) => [c.cycle, c.coverage])).toEqual([
       [141, "exact"],
-      [140, "exact"],
+      [140, "historical-coverage-incomplete"],
       [139, "historical-coverage-incomplete"],
       [138, "historical-coverage-incomplete"],
     ]);

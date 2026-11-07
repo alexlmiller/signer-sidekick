@@ -260,7 +260,7 @@ function checkpointIndex(checkpoint: "first-half" | "second-half"): RewardLedger
 
 /**
  * Seam rule: a payment (or collect) belongs to the latest distribution of its cycle whose
- * calculation preceded it. Falls back to the first distribution when nothing preceded it.
+ * calculation preceded it. Without that evidence, only the cycle is known.
  */
 function attribute(
   calculations: readonly CalculationFact[],
@@ -270,7 +270,7 @@ function attribute(
   for (const fact of calculations) {
     if (fact.realization.blockHeight <= blockHeight) result = fact.distribution;
   }
-  return result ?? calculations[0]?.distribution ?? null;
+  return result;
 }
 
 function l1StatusFor(
@@ -491,7 +491,6 @@ export async function buildRewardLedger(input: BuildRewardLedgerInput): Promise<
   if (rewardsPrevious && !liveStatuses.has(rewardsPrevious.rewardCycle)) {
     liveStatuses.set(rewardsPrevious.rewardCycle, rewardsPrevious);
   }
-  const roster = new Set((snapshot.roster ?? []).map(({ stakerPrincipal }) => stakerPrincipal));
   // Current Bitcoin payout registrations from live reward status. Historical claim events do not
   // carry their original destination, so the API and UI must not present this as historical proof.
   const l1Network = poxAddressNetwork(snapshot.network);
@@ -730,9 +729,22 @@ export async function buildRewardLedger(input: BuildRewardLedgerInput): Promise<
         )
       : null;
     const memberships = store.listCycleMembershipsForCycle(managerPrincipal, cycle, input.sourceId);
-    const departedMembers = memberships.some(
-      ({ stakerPrincipal, amountUstx }) => amountUstx > 0n && !roster.has(stakerPrincipal),
+    const funded =
+      calculations.some((c) => big(c.realization.poolEstimate?.grossSats) > 0n) ||
+      collects.some((p) => big(p.stxRewardsSats) > 0n);
+    const paidStx = new Set(
+      cycleClaims.filter((c) => c.bondIndex === null).map((c) => c.stakerPrincipal),
     );
+    // A positive historical share is a candidate, not proof of an unpaid entitlement.
+    const unaccountedMember =
+      !isLive &&
+      funded &&
+      memberships.some(
+        (m) =>
+          m.signerPrincipal === managerPrincipal &&
+          m.amountUstx > 0n &&
+          !paidStx.has(m.stakerPrincipal),
+      );
     // Evidence below the retained window may be missing for this cycle: anything at or before the
     // oldest retained row, or any non-current cycle older than the oldest cycle still in the window.
     const cycleEvidenceHeights = [
@@ -747,13 +759,26 @@ export async function buildRewardLedger(input: BuildRewardLedgerInput): Promise<
         (height) => height <= (evidenceWindow.oldestRetainedBlockHeight ?? 0),
       ) ||
         cycle < oldestRetainedCycle);
-    // Recovery gaps apply to the current cycle too: a fresh install may not yet have seen payments
-    // made earlier in this cycle. Departed members and the evidence window only concern history.
-    const historicallyIncomplete =
-      !interpretationAvailable ||
-      recoveryIncomplete ||
-      liveReadsUnavailable ||
-      (!isLive && (departedMembers || evidenceIncomplete));
+    const earliestCalc = calculations[0]?.realization.blockHeight;
+    const missingCalculation = [...cycleClaims, ...collects].some(
+      (c) => earliestCalc === undefined || c.blockHeight < earliestCalc,
+    );
+    const coverageNote = !interpretationAvailable
+      ? "Payment events are not supported for this manager."
+      : recoveryIncomplete
+        ? "Historical payment recovery is not complete."
+        : liveReadsUnavailable
+          ? "Current reward reads are unavailable."
+          : evidenceIncomplete
+            ? "Some events fall outside the retained evidence window."
+            : missingCalculation
+              ? "Calculation evidence is missing for recorded transactions."
+              : unaccountedMember
+                ? "Some cycle members have no recorded STX payment. This does not establish an unpaid balance."
+                : !isLive && funded && !memberships.length && !cycleClaims.length
+                  ? "No account evidence is available for this cycle."
+                  : null;
+    const historicallyIncomplete = coverageNote !== null;
     // Historical attribution limits do not undo observed payments or reopen completed work.
     const interpretationUnavailable =
       !interpretationAvailable || liveReadsUnavailable || recoveryIncomplete;
@@ -826,7 +851,10 @@ export async function buildRewardLedger(input: BuildRewardLedgerInput): Promise<
         feeRefundSats: null,
         returnedSats: status === "returned" ? text(entitlement) : null,
         status,
-        coverage: "exact",
+        coverage:
+          distribution === null || (distribution === 2 && historicallyIncomplete)
+            ? "historical-coverage-incomplete"
+            : "exact",
         includesPriorDistribution: false,
         paymentTxId: claim.txId,
         paymentBlockHeight: claim.blockHeight,
@@ -851,7 +879,12 @@ export async function buildRewardLedger(input: BuildRewardLedgerInput): Promise<
     const rolledRows: PaymentRow[] = [];
     const first = calculations.find(({ distribution }) => distribution === 1);
     const second = calculations.find(({ distribution }) => distribution === 2);
-    if (first && second && big(first.realization.poolEstimate?.grossSats ?? "0") > 0n) {
+    if (
+      !historicallyIncomplete &&
+      first &&
+      second &&
+      big(first.realization.poolEstimate?.grossSats ?? "0") > 0n
+    ) {
       const paidBeforeSecond = new Set(
         paidRows
           .filter(
@@ -887,8 +920,8 @@ export async function buildRewardLedger(input: BuildRewardLedgerInput): Promise<
       // Second-Distribution payment that carried the amount once that was made. The first-half
       // amount itself is not separable from chain evidence; the recipe's gross bound is kept.
       // With incomplete history a missing first-half payment proves nothing, so no row is emitted.
-      const runs = historicallyIncomplete ? [] : (input.runHistory?.(cycle, 1) ?? []);
-      for (const account of historicallyIncomplete ? [] : [...rolled].sort()) {
+      const runs = input.runHistory?.(cycle, 1) ?? [];
+      for (const account of [...rolled].sort()) {
         const separator = account.lastIndexOf("|");
         const stakerPrincipal = account.slice(0, separator);
         const bucket = account.slice(separator + 1);
@@ -984,6 +1017,7 @@ export async function buildRewardLedger(input: BuildRewardLedgerInput): Promise<
             status,
             coverage: "exact",
             includesPriorDistribution:
+              !historicallyIncomplete &&
               latestCalculated === 2 &&
               first !== undefined &&
               !paidRows.some(
@@ -1019,9 +1053,6 @@ export async function buildRewardLedger(input: BuildRewardLedgerInput): Promise<
     }
 
     const cycleRows = [...paidRows, ...rolledRows, ...outstandingRows];
-    if (historicallyIncomplete) {
-      for (const row of cycleRows) row.coverage = "historical-coverage-incomplete";
-    }
     allPayments.push(...cycleRows);
 
     // distributions present for this cycle
@@ -1269,9 +1300,10 @@ export async function buildRewardLedger(input: BuildRewardLedgerInput): Promise<
       cycle,
       feeBips,
       feeEvidence,
-      collectedSats: text(distributions.reduce((total, d) => total + big(d.collectedSats), 0n)),
+      // Cycle totals also include canonical transfers without a known distribution checkpoint.
+      collectedSats: text(collects.reduce((total, c) => total + big(c.totalRewardsSats), 0n)),
       distributedSats: text(
-        distributions.reduce((total, d) => total + big(d.payments.distributedSats), 0n),
+        paidRows.reduce((total, row) => total + big(row.stakerEntitlementSats), 0n),
       ),
       operatorFeeSats:
         !interpretationUnavailable &&
@@ -1282,7 +1314,8 @@ export async function buildRewardLedger(input: BuildRewardLedgerInput): Promise<
       outstandingSats: text(
         distributions.reduce((total, d) => total + big(d.payments.outstandingSats), 0n),
       ),
-      coverage: cycleCoverage,
+      coverage: coverageNote ? "historical-coverage-incomplete" : cycleCoverage,
+      ...(coverageNote ? { coverageNote } : {}),
       distributions,
     });
   }
