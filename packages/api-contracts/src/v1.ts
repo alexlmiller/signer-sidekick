@@ -3047,6 +3047,7 @@ export const rewardLedgerCycleSchema = z
     operatorFeeSats: ledgerSatsSchema.nullable(),
     outstandingSats: ledgerSatsSchema,
     coverage: rewardLedgerCoverageSchema,
+    coverageNote: z.string().optional(),
     distributions: z.array(rewardLedgerDistributionSchema).max(2),
   })
   .strict();

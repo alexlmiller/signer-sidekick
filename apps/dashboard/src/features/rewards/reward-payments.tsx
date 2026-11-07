@@ -250,12 +250,7 @@ export function PaymentsTable({
                       <span className="rw-pay-sub">{row.bucket.replace("bond-", "bond ")}</span>
                     ) : null}
                     {row.includesPriorDistribution ? (
-                      <span
-                        className="rw-pay-sub"
-                        title="Carries the First Distribution amount too"
-                      >
-                        + First
-                      </span>
+                      <span className="rw-pay-sub">Covers both distributions</span>
                     ) : null}
                   </td>
                   {variant === "pending" ? (
@@ -299,9 +294,6 @@ export function PaymentsTable({
                           column. Keep the evidence popover only where that column is absent. */}
                       {variant === "history" ? null : <TxIdMarker payment={row} />}
                     </span>
-                    {row.coverage === "historical-coverage-incomplete" ? (
-                      <span className="rw-pay-sub rw-coverage">history incomplete</span>
-                    ) : null}
                   </td>
                   {variant === "history" ? (
                     <td className="rw-payment-paid" data-label="Paid">

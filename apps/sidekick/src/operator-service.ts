@@ -1041,10 +1041,7 @@ export class OperatorService {
     }
     const offset = options.offset ?? 0;
     const limit = Math.min(options.limit ?? 25, 100);
-    // The reconciled roster, not the STX cycle-membership list. A pure bond staker has no STX
-    // membership, so sourcing candidates from reward status would silently never offer their
-    // settlement transaction. Only reconciliation-complete entries are offered: an unexplained
-    // roster entry is not something to build a payout from.
+    // Keep the current reconciliation gate even when settling an earlier cycle.
     const config = this.runtimeContext().config;
     const sourceId = createChainSourceId(config.network, config.apiUrl);
     const completedRun = this.options.store.getLatestCompletedSignerStakerRun(
@@ -1054,24 +1051,26 @@ export class OperatorService {
     if (!completedRun?.reconciliationComplete) {
       throw new Error("Signer-staker reconciliation must complete before settling staker rewards");
     }
-    const principals = this.options.store
-      .listSignerStakers(this.options.managerPrincipal, true, sourceId)
-      .filter(
-        ({ lastSeenRunId, bond, position, stxNodeVerified }) =>
-          lastSeenRunId === completedRun.runId &&
-          (bond !== null || position !== null || stxNodeVerified === true),
-      )
-      .map(({ stakerPrincipal }) => stakerPrincipal);
-    const page = principals.slice(offset, offset + limit);
     const bondIndices =
       options.bondIndices ??
       (rewards?.buckets ?? [])
         .filter(({ bondIndex, participating }) => bondIndex !== null && participating)
         .map(({ bondIndex }) => BigInt(bondIndex as string));
+    const rewardCycle = options.rewardCycle ?? (rewards as NonNullable<typeof rewards>).rewardCycle;
+    const { principals: page, total } = this.options.store.listRewardClaimPrincipals({
+      manager: this.options.managerPrincipal,
+      sourceId,
+      runId: completedRun.runId,
+      chainId: config.expectedNetworkId ?? (config.network === "mainnet" ? 1 : 0x80000000),
+      cycle: rewardCycle,
+      bondIndices,
+      limit,
+      offset,
+    });
     const discovery = await discoverStakerClaims({
       node: this.options.node,
       managerPrincipal: this.options.managerPrincipal,
-      rewardCycle: options.rewardCycle ?? (rewards as NonNullable<typeof rewards>).rewardCycle,
+      rewardCycle,
       stakerPrincipals: page,
       bondIndices,
       ...(options.chainAnchor ? { chainAnchor: options.chainAnchor } : {}),
@@ -1083,8 +1082,8 @@ export class OperatorService {
         stakerPrincipals: page,
         offset,
         limit,
-        stakersTotal: principals.length,
-        nextCursor: offset + limit < principals.length ? String(offset + limit) : null,
+        stakersTotal: total,
+        nextCursor: offset + limit < total ? String(offset + limit) : null,
       },
       settlement: discovery.settlement,
       candidates: discovery.stakers.flatMap((staker) =>

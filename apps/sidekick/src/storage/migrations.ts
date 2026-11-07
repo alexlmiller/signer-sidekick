@@ -2511,4 +2511,15 @@ export const migrations: readonly Migration[] = [
           (status = 'failed' AND failure_code IN ('no-work', 'temporarily-unavailable')));
     `,
   },
+  {
+    version: 46,
+    name: "cycle_bond_claim_candidates",
+    sql: `
+      CREATE INDEX position_verified_bond_cycle ON staker_position_observations
+        (manager_principal, source_id, json_extract(chain_anchor_json, '$.rewardCycle'),
+         json_extract(position_detail_json, '$.bond.bondIndex'), staker_principal)
+        WHERE reconciliation_complete = 1
+          AND json_extract(position_detail_json, '$.bond.bondIndex') IS NOT NULL;
+    `,
+  },
 ];

@@ -16,7 +16,11 @@ import {
   readRewardOutlook,
   readStxRewardStatus,
 } from "./reward-status.js";
-import type { SignerStakerRun, StoredCycleMembership } from "./storage/store.js";
+import {
+  openSidekickStore,
+  type SignerStakerRun,
+  type StoredCycleMembership,
+} from "./storage/store.js";
 
 const manager = "SP000000000000000000002Q6VF78.signer-manager";
 const pox5 = "SP000000000000000000002Q6VF78.pox-5";
@@ -716,6 +720,101 @@ describe("STX-only reward status", () => {
       totalNetSats: "10800",
       blockedClaims: 0,
     });
+  });
+
+  it("finishes a five-staker distribution after rollover without paying a newcomer or repeating a payment", async () => {
+    const { store: db } = await openSidekickStore(":memory:", completedRun.startedAt);
+    try {
+      for (const [id, kind] of [
+        [sourceId, "api"],
+        ["node", "node"],
+      ] as const)
+        db.chainState.upsertSource({
+          sourceId: id,
+          kind,
+          network: "mainnet",
+          baseUrl: "http://localhost",
+          observedAt: completedRun.startedAt,
+        });
+      const kept = [stakerTwo, ...["a", "b", "c"].map((s) => `${stakerOne}.${s}`)];
+      const newcomer = `${stakerOne}.new`;
+      function reconcile(cycle: number, principals: string[], at: string) {
+        const anchor = {
+          ...chainAnchor,
+          rewardCycle: cycle,
+          burnBlockHeight: chainAnchor.burnBlockHeight + (cycle - 141) * 2100,
+          stacksBlockHeight: chainAnchor.stacksBlockHeight + cycle,
+        };
+        const run = db.startOrResumeSignerStakerRun(sourceId, manager, at, anchor);
+        db.commitSignerStakerPage({
+          sourceId,
+          nodeSourceId: "node",
+          runId: run.runId,
+          managerPrincipal: manager,
+          nextCursor: null,
+          authoritativeCompletion: true,
+          chainAnchor: anchor,
+          observedAt: at,
+          burnBlockHeight: anchor.burnBlockHeight,
+          stacksTipHeight: anchor.stacksBlockHeight,
+          items: principals.map((stakerPrincipal) => ({
+            stakerPrincipal,
+            hasStx: true,
+            hasBtc: false,
+            stxNodeVerified: true,
+            active: true,
+            position: {
+              signerPrincipal: manager,
+              amountUstx: 100n,
+              firstRewardCycle: BigInt(cycle),
+              numCycles: 1n,
+              cycleMemberships: [
+                { rewardCycle: BigInt(cycle), signerPrincipal: manager, amountUstx: 100n },
+              ],
+            },
+          })),
+        });
+        return { run, anchor };
+      }
+      reconcile(141, [...kept, stakerOne], completedRun.startedAt);
+      const { run, anchor } = reconcile(142, [...kept, newcomer], completedRun.updatedAt);
+      const { principals } = db.listRewardClaimPrincipals({
+        manager,
+        sourceId,
+        chainId: 1,
+        runId: run.runId,
+        cycle: 141,
+        bondIndices: [],
+        limit: 100,
+        offset: 0,
+      });
+      expect(principals).toHaveLength(6);
+      const discover = (net: bigint) =>
+        discoverStakerClaims({
+          managerPrincipal: manager,
+          rewardCycle: 141,
+          chainAnchor: anchor,
+          stakerPrincipals: principals,
+          bondIndices: [],
+          node: options(
+            store(),
+            nodeReads({
+              managerUnclaimedSats: 300000n,
+              perStaker: { [stakerOne]: rewards(net, net ? 10626n : 0n) },
+            }),
+          ).node,
+        });
+      const before = await discover(201900n);
+      expect(
+        before.stakers
+          .filter((s) => s.claims.some((c) => c.claimable))
+          .map((s) => s.stakerPrincipal),
+      ).toEqual([stakerOne]);
+      expect(before.settlement.totalNetSats).toBe("201900");
+      expect((await discover(0n)).settlement.transactionCount).toBe(0);
+    } finally {
+      db.close();
+    }
   });
 
   it("refuses to count a claim the manager would reject", async () => {
