@@ -108,6 +108,35 @@ function observation(
 }
 
 describe("Signer Health v2 diagnosis", () => {
+  it.each([
+    "stall",
+    "peer-gap",
+  ])("escalates %s only after five minutes and clears on recovery", (kind) => {
+    const start = Date.parse("2026-08-14T12:00:00.000Z");
+    const samples = Array.from({ length: 61 }, (_, i) => {
+      const sample = observation(new Date(start + i * 5_000).toISOString(), {
+        height: kind === "stall" ? 200 : 200 + i,
+        referenceHeight: 200 + i,
+        peerAligned: true,
+      });
+      if (kind === "peer-gap" && sample.nodeHealth) sample.nodeHealth.difference_from_max_peer = 4;
+      return sample;
+    });
+    const id = kind === "stall" ? "node-tip-stalled-locally" : "node-behind-network";
+    const snapshot = (observations: HealthObservation[]) =>
+      buildHealthSnapshot({ observations, config, burnBlockTiming: null, operator });
+    expect(snapshot(samples.slice(0, 20)).findings.find((f) => f.id === id)?.severity).toBe(
+      "warning",
+    );
+    expect(snapshot(samples).findings.find((f) => f.id === id)?.severity).toBe("critical");
+    const recovered = observation(new Date(start + 305_000).toISOString(), {
+      height: 300,
+      referenceHeight: 300,
+      peerAligned: true,
+    });
+    expect(snapshot([...samples, recovered]).findings.find((f) => f.id === id)).toBeUndefined();
+  });
+
   it("describes a healthy signer as operating as expected", () => {
     const startedAt = Date.parse("2026-08-14T12:00:00.000Z");
     const healthyConfig: SidekickConfig = {

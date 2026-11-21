@@ -553,6 +553,36 @@ function changedSnapshot(change: (value: DashboardSnapshot) => void): DashboardS
   return value;
 }
 
+it("surfaces stuck reward history even when the operator snapshot and signer are fresh", () => {
+  const result = overview({
+    rewardSync: {
+      consecutiveFailures: 8,
+      lastSuccessAt: "2026-08-14T11:00:00.000Z",
+      lastFailureAt: generatedAt,
+    },
+  });
+  expect(result.attention).toContainEqual(
+    expect.objectContaining({
+      attentionId: "sidekick:reward-sync-delayed",
+      tier: "needs-attention",
+      affectedDomains: ["rewards"],
+    }),
+  );
+  expect(overviewPageSchema.safeParse(result).success).toBe(true);
+});
+
+it("does not alert on transient or recovered reward reconciliation failures", () => {
+  for (const rewardSync of [
+    { consecutiveFailures: 1, lastSuccessAt: null, lastFailureAt: generatedAt },
+    { consecutiveFailures: 3, lastSuccessAt: generatedAt, lastFailureAt: generatedAt },
+    { consecutiveFailures: 0, lastSuccessAt: generatedAt, lastFailureAt: generatedAt },
+  ]) {
+    expect(overview({ rewardSync }).attention.map((a) => a.attentionId)).not.toContain(
+      "sidekick:reward-sync-delayed",
+    );
+  }
+});
+
 function attention(
   id: string,
   tier: OverviewAttentionItem["tier"],

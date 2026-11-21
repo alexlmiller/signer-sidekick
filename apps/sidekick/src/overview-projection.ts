@@ -13,6 +13,7 @@ import type {
 } from "@stx-labs/signer-sidekick-api-contracts";
 import { HEALTH_RULES } from "./health-monitoring-rules.js";
 import type { ObserverGapStatus as CompleteObserverGapStatus } from "./observer-gap-monitor.js";
+import type { ObserverReconciliationDomainStatus } from "./observer-reconciliation.js";
 
 type ObserverGapStatus = Pick<
   CompleteObserverGapStatus,
@@ -30,6 +31,10 @@ export interface OverviewProjectionInput {
     reason: string | null;
   };
   observerGap?: ObserverGapStatus | null;
+  rewardSync?: Pick<
+    ObserverReconciliationDomainStatus,
+    "consecutiveFailures" | "lastSuccessAt" | "lastFailureAt"
+  > | null;
   now?: Date;
 }
 
@@ -881,6 +886,48 @@ function buildAttentionCandidates(input: OverviewProjectionInput): OverviewAtten
   const { snapshot, health, connection, activity, activitySource, observerGap } = input;
   const candidates: OverviewAttentionCandidate[] = [];
   const updatedAt = snapshot.generatedAt;
+  const rewardSync = input.rewardSync;
+  if (
+    rewardSync &&
+    rewardSync.consecutiveFailures >= 3 &&
+    (!rewardSync.lastSuccessAt ||
+      (input.now ?? new Date()).getTime() - Date.parse(rewardSync.lastSuccessAt) >= 15 * 60_000)
+  ) {
+    candidates.push({
+      conditionKey: "rewards:sync-delayed",
+      survivesWildcardSuppression: true,
+      item: attentionItem({
+        attentionId: "sidekick:reward-sync-delayed",
+        tier: "needs-attention",
+        domain: "sidekick",
+        affectedDomains: ["rewards"],
+        code: "reward-sync-delayed",
+        title: "Reward history is not updating",
+        summary: rewardSync.lastSuccessAt
+          ? `Reward synchronization has failed repeatedly. Last successful update: ${rewardSync.lastSuccessAt}.`
+          : "Reward synchronization has failed repeatedly without a successful update this session.",
+        impact:
+          "Distributions and payment history may be missing. Check Sidekick logs before relying on reward totals; signer health is separate.",
+        updatedAt: rewardSync.lastFailureAt ?? updatedAt,
+        evidence: [
+          evidence({
+            status: "delayed",
+            observedAt: rewardSync.lastSuccessAt,
+            source: "sidekick-store",
+            reason: "The rewards reconciliation worker is failing repeatedly.",
+          }),
+        ],
+        relatedActivityId: null,
+        relatedFindingId: null,
+        primaryAction: rewardsAction("claims", "Review rewards"),
+        detailsAction: {
+          kind: "open-settings",
+          section: "observer",
+          label: "Review synchronization",
+        },
+      }),
+    });
+  }
   const localEvidence = snapshotEvidence(snapshot);
   const snapshotCurrent =
     localNodeAuthoritative(snapshot) && snapshot.freshness?.status !== "stale";

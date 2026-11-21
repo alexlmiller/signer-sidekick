@@ -638,7 +638,7 @@ test("preserves spacing between emphasized callout titles and their details", as
   await login(page);
 
   await expect(page.locator(".overview-clear-state .body")).toHaveText(
-    /No action is required right now\. Current evidence was checked/,
+    /No current health or synchronization alerts\. Review Pool and Rewards below/,
   );
   await expectNoConcatenatedStrongSpanPairs();
 

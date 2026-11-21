@@ -22,6 +22,7 @@ import { useDomainSection } from "../../shared/domain-section.js";
 import { compactDuration, number, sbtc, stx } from "../../shared/format.js";
 import { operatorErrorDetail, operatorErrorSentence } from "../../shared/operator-error.js";
 import { startVisibleRefresh } from "../../shared/visible-refresh.js";
+import { RewardScheduleIndicator } from "../settings/reward-schedule-settings.js";
 import { RewardsOverviewCard } from "./rewards-overview-card.js";
 
 const OVERVIEW_POLL_MS = 15_000;
@@ -357,10 +358,6 @@ export function Overview({
   const visibleAttention = showAllAttention
     ? data.attention
     : data.attention.slice(0, INITIAL_ATTENTION_COUNT);
-  const checkedAgeSeconds = Math.max(
-    0,
-    Math.round((Date.now() - Date.parse(data.generatedAt)) / 1_000),
-  );
   const pool = data.pool;
   const rewards = data.rewards;
   const usesRewardForecast = rewards.estimateKind === "checkpoint-forecast";
@@ -506,11 +503,8 @@ export function Overview({
           <div className="callout callout-neutral overview-clear-state">
             <CheckCircle className="ic" />
             <div className="body">
-              <strong>No action is required right now.</strong>{" "}
-              <span>
-                Current evidence was checked {compactDuration(checkedAgeSeconds)} ago. Scheduled
-                work remains on Pool and Rewards until it becomes actionable.
-              </span>
+              <strong>No current health or synchronization alerts.</strong>{" "}
+              <span>Review Pool and Rewards below for pending operations.</span>
             </div>
           </div>
         ) : (
@@ -636,6 +630,7 @@ export function Overview({
           />
         </section>
 
+        <RewardScheduleIndicator token={token} />
         <RewardsOverviewCard
           key={`${data.monitoring.network}:${data.monitoring.managerPrincipal}`}
           token={token}

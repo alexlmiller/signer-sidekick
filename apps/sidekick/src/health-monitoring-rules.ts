@@ -26,9 +26,11 @@ export const HEALTH_RULE_THRESHOLDS = {
     lagBlocks: 3,
     minimumSamples: 4,
     minimumWindowMs: 30_000,
+    criticalWindowMs: 5 * 60_000,
   },
   localNodeStall: {
     minimumWindowMs: 90_000,
+    criticalWindowMs: 5 * 60_000,
   },
   networkStall: {
     minimumWindowMs: 180_000,
@@ -134,7 +136,7 @@ export const HEALTH_RULES = {
   nodeBehindNetwork: defineRule({
     id: "node-behind-network",
     category: "local-chain",
-    defaultSeverity: "critical",
+    defaultSeverity: "warning",
     thresholds: HEALTH_RULE_THRESHOLDS.nodeBehindPeers,
     rationale: "The node's own peer view can directly show that its canonical tip is behind.",
     falsePositiveGuard: "Require a multi-block gap across multiple samples and a minimum duration.",
@@ -142,7 +144,7 @@ export const HEALTH_RULES = {
   nodeTipStalledLocally: defineRule({
     id: "node-tip-stalled-locally",
     category: "local-chain",
-    defaultSeverity: "critical",
+    defaultSeverity: "warning",
     thresholds: HEALTH_RULE_THRESHOLDS.localNodeStall,
     rationale: "A local tip that stops while another source advances needs operator investigation.",
     falsePositiveGuard: "Require independent evidence of newer chain progress during the stall.",

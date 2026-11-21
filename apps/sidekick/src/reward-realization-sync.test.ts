@@ -223,6 +223,7 @@ function environment(txIndex = 0, postManagerSharesUstx?: number) {
       stacks_tip_height: 8_600_002,
     }),
     getPoxInfo: vi.fn().mockResolvedValue({
+      first_burnchain_block_height: 663_091,
       current_burnchain_block_height: 960_241,
       reward_cycle_id: 141,
       reward_cycle_length: 2_100,
@@ -320,6 +321,52 @@ function environment(txIndex = 0, postManagerSharesUstx?: number) {
 }
 
 describe("PoX-5 reward realization synchronization", () => {
+  it("records a canonical calculation at the indexed boundary height without wedging the cursor", async () => {
+    const repository = store();
+    const runtime = environment();
+    const getBlock = runtime.api.getBlock.getMockImplementation();
+    if (!getBlock) throw new Error("Missing fixture block reader");
+    runtime.api.getBlock.mockImplementation(async (hash) => ({
+      ...(await getBlock(hash)),
+      burn_block_height: 960_240,
+    }));
+    await expect(
+      syncRewardRealizations({
+        store: repository.value,
+        ...runtime,
+        sourceId,
+        chainId: 1,
+        managerPrincipal: manager,
+        pox5ContractId: pox5,
+        observedAt,
+      }),
+    ).resolves.toMatchObject({ caughtUp: true, realizationsStored: 1 });
+    expect(repository.putRewardCalculationRealizationPage.mock.calls[0]?.[0]?.[0]).toMatchObject({
+      targetRewardCycle: 141,
+      targetCheckpoint: "first-half",
+      calculationBurnHeight: 960_240,
+    });
+  });
+
+  it("rejects a checkpoint inconsistent with protocol cycle boundaries without advancing the cursor", async () => {
+    const repository = store();
+    const runtime = environment();
+    const pox = await runtime.node.getPoxInfo();
+    runtime.node.getPoxInfo.mockResolvedValue({ ...pox, first_burnchain_block_height: 663_092 });
+    await expect(
+      syncRewardRealizations({
+        store: repository.value,
+        ...runtime,
+        sourceId,
+        chainId: 1,
+        managerPrincipal: manager,
+        pox5ContractId: pox5,
+        observedAt,
+      }),
+    ).rejects.toThrow("cannot be placed at an exact checkpoint");
+    expect(repository.putRewardCalculationRealizationPage).not.toHaveBeenCalled();
+  });
+
   it("fails closed when the API repeats a pagination cursor", async () => {
     const repository = store();
     const runtime = environment();

@@ -155,6 +155,7 @@ function finding(
     "id" | "severity" | "firstObservedAt" | "lastObservedAt" | "evidenceWindow"
   > & {
     rule: HealthRuleDefinition;
+    severity?: FindingInput["severity"];
     observations: readonly HealthObservation[];
   },
 ): FindingInput {
@@ -497,6 +498,13 @@ function evaluateHealthFindings(input: {
     findings.push(
       finding({
         rule: HEALTH_RULES.nodeBehindNetwork,
+        severity: sustained(
+          behindSamples,
+          nodeBehindPeers.minimumSamples,
+          nodeBehindPeers.criticalWindowMs,
+        )
+          ? "critical"
+          : "warning",
         title:
           latest.nodeInfo?.is_fully_synced === false
             ? "Stacks node is not fully synchronized"
@@ -565,6 +573,7 @@ function evaluateHealthFindings(input: {
     findings.push(
       finding({
         rule: HEALTH_RULES.nodeTipStalledLocally,
+        severity: nodeStallAge >= localNodeStall.criticalWindowMs ? "critical" : "warning",
         title: "Local Stacks tip stopped advancing",
         detail:
           "The local node stopped advancing while at least one independent source observed newer chain progress.",

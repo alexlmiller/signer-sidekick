@@ -2098,6 +2098,7 @@ export function createServer(options: ServerOptions = {}) {
                 : "The Activity projection is not configured.",
           },
           observerGap: options.observerStatus?.().gap ?? null,
+          rewardSync: options.observerStatus?.().reconciliation?.domains.rewards ?? null,
         }),
       );
     });
