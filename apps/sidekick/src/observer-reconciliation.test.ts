@@ -82,6 +82,44 @@ function burnDelivery(height: number): StoredObserverDelivery {
 }
 
 describe("ObserverReconciliationScheduler", () => {
+  it("continues bounded reward pages with a delay and stops when caught up", async () => {
+    vi.useFakeTimers();
+    const service = {
+      refreshSnapshot: vi.fn().mockResolvedValue(undefined),
+      synchronizeManagerActivity: vi.fn().mockResolvedValue(undefined),
+      synchronizeRewardRealizations: vi
+        .fn()
+        .mockResolvedValueOnce({ result: { caughtUp: false } })
+        .mockResolvedValue({ result: { caughtUp: true } }),
+      synchronize: vi.fn().mockResolvedValue(undefined),
+    };
+    const scheduler = new ObserverReconciliationScheduler({
+      service,
+      logger: { info: vi.fn(), warn: vi.fn() },
+      managerPrincipal,
+      getPox5ContractId: () => pox5ContractId,
+    });
+    try {
+      scheduler.start();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(service.synchronizeRewardRealizations).toHaveBeenCalledTimes(1);
+      expect(scheduler.status().domains.rewards).toMatchObject({
+        pending: true,
+        consecutiveFailures: 0,
+      });
+      await vi.advanceTimersByTimeAsync(14_999);
+      expect(service.synchronizeRewardRealizations).toHaveBeenCalledTimes(1);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(service.synchronizeRewardRealizations).toHaveBeenCalledTimes(2);
+      expect(scheduler.status().domains.rewards).toMatchObject({ pending: false, successes: 2 });
+      await vi.advanceTimersByTimeAsync(15_000);
+      expect(service.synchronizeRewardRealizations).toHaveBeenCalledTimes(2);
+    } finally {
+      await scheduler.stop();
+      vi.useRealTimers();
+    }
+  });
+
   it("coalesces overflow catch-up without trusting callback heights or bypassing connection checks", async () => {
     vi.useFakeTimers();
     let connected = false;

@@ -13,7 +13,7 @@ import {
   checkTransactionInCanonicalBlock,
   proveTransactionInCanonicalBlock,
 } from "./canonical-node-block.js";
-import { type ChainAnchor, deriveRewardCalculationTarget } from "./chain-anchor.js";
+import type { ChainAnchor } from "./chain-anchor.js";
 import {
   createChainAnchor,
   type NodeInfo,
@@ -425,28 +425,21 @@ async function buildRealization(
     parentAnchor = null;
     transactionAnchor = null;
   }
-  if (parentAnchor && transactionAnchor) {
-    const target = deriveRewardCalculationTarget(parentAnchor);
-    if (
-      target.status !== "ready" ||
-      target.rewardCycle !== eventRewardCycle ||
-      target.expectedLastRewardComputeBurnHeight !== calculationBurnHeight
-    ) {
-      throw new Error(`PoX-5 event target does not match its canonical parent anchor`);
-    }
-    targetCheckpoint = target.calculationCheckpoint;
-  } else {
-    const currentPox = await options.node.getPoxInfo(
-      options.signal ? { signal: options.signal } : {},
+  // The canonical successful receipt proves which checkpoint was calculated. A historical
+  // parent block's indexed burn height is not the contract's execution-time burn height;
+  // deriving a live calculation target from it rejects valid boundary transactions.
+  // Validate the receipt against protocol cycle boundaries instead. Parent/post anchors
+  // remain necessary below to prove the pool's allocation, not to date the global event.
+  const currentPox = await options.node.getPoxInfo(
+    options.signal ? { signal: options.signal } : {},
+  );
+  const inferred = inferHistoricalCheckpoint(eventRewardCycle, calculationBurnHeight, currentPox);
+  if (!inferred || calculationBurnHeight > transactionBlock.burn_block_height) {
+    throw new Error(
+      `PoX-5 historical calculation ${transaction.tx_id} cannot be placed at an exact checkpoint`,
     );
-    const inferred = inferHistoricalCheckpoint(eventRewardCycle, calculationBurnHeight, currentPox);
-    if (!inferred) {
-      throw new Error(
-        `PoX-5 historical calculation ${transaction.tx_id} cannot be placed at an exact checkpoint`,
-      );
-    }
-    targetCheckpoint = inferred;
   }
+  targetCheckpoint = inferred;
 
   if (parentAnchor && transactionAnchor) {
     try {

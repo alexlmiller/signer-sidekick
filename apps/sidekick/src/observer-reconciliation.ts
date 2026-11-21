@@ -501,10 +501,19 @@ export class ObserverReconciliationScheduler {
             minimumStacksHeight: requestedStacksHeight,
           });
         } else if (domain === "rewards") {
-          await this.#service.synchronizeRewardRealizations({
+          const progress = await this.#service.synchronizeRewardRealizations({
             signal: controller.signal,
             minimumStacksHeight: requestedStacksHeight,
           });
+          // A bounded page batch is successful work, not necessarily a caught-up stream.
+          // Continue it without waiting for another print or the five-minute safety poll.
+          const result = z
+            .object({ result: z.object({ caughtUp: z.boolean() }) })
+            .safeParse(progress);
+          if (result.success && !result.data.result.caughtUp) {
+            state.pending = true;
+            retryDelayMs = this.#failureDelayMs;
+          }
         } else {
           await this.#service.synchronize({
             signal: controller.signal,

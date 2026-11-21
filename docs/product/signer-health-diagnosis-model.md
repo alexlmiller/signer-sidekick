@@ -228,6 +228,11 @@ Support-bundle export reads stored evidence and never collects or reconciles hea
 
 ## Decision examples
 
+Local peer lag and local tip stalls begin as warnings at the thresholds below and escalate to
+critical after five continuous minutes. The November 2026 operational review found repeated
+90–150-second self-recovering stalls; retain their evidence without treating each as urgent.
+Endpoint failures and confirmed participation/identity problems retain their existing rules.
+
 | Observed evidence | Classification | Reasoning |
 | --- | --- | --- |
 | Local node is at least 3 blocks behind its most advanced connected peer for 4 samples spanning 30 seconds | `likely-local-node` | The node's own peer view shows a sustained local gap |
